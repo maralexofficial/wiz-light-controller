@@ -1,3 +1,4 @@
+
 'use strict';
 
 const dgram = require('node:dgram');
@@ -57,7 +58,6 @@ function performDiscovery() {
       }
 
       finished = true;
-
       const result = Array.from(devices.values());
 
       cleanup();
@@ -80,10 +80,10 @@ function performDiscovery() {
     });
 
     socket.on('message', (message, remote) => {
-      let response;
+      let packet;
 
       try {
-        response = JSON.parse(message.toString('utf8'));
+        packet = JSON.parse(message.toString('utf8'));
       } catch {
         console.warn(
           `[Discovery] Ignored invalid JSON from ${remote.address}.`
@@ -91,17 +91,35 @@ function performDiscovery() {
         return;
       }
 
-      const params = response?.params || {};
-      const mac = typeof params.mac === 'string'
-        ? params.mac.toLowerCase()
-        : '';
+      const params = packet?.params || {};
+      const result = packet?.result || {};
 
-      if (!mac) {
+      const macCandidates = [
+        params.mac,
+        params.macAddress,
+        params.deviceMac,
+        result.mac,
+        result.macAddress,
+        result.deviceMac,
+        packet.mac,
+        packet.macAddress,
+        packet.deviceMac
+      ];
+
+      const macValue = macCandidates.find(
+        (value) =>
+          typeof value === 'string' &&
+          /^[0-9a-f]{12}$/i.test(value.replace(/[:-]/g, ''))
+      );
+
+      if (!macValue) {
         console.log(
-          `[Discovery] Received a response from ${remote.address}, but no MAC address was present.`
+          `[Discovery] Response from ${remote.address} has no recognized MAC field.`
         );
         return;
       }
+
+      const mac = macValue.replace(/[:-]/g, '').toLowerCase();
 
       devices.set(remote.address, {
         ip: remote.address,
@@ -144,9 +162,7 @@ function performDiscovery() {
             `[Discovery] Broadcast sent to ${DISCOVERY_ADDRESS}:${config.wizPort}.`
           );
 
-          timer = setTimeout(() => {
-            finish();
-          }, config.discoveryTimeoutMs);
+          timer = setTimeout(() => finish(), config.discoveryTimeoutMs);
         }
       );
     });
