@@ -1,6 +1,8 @@
 'use strict';
 
 const express = require('express');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 const discovery = require('../services/discovery.service');
 const wiz = require('../services/wiz.service');
@@ -9,9 +11,128 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+const HOME_DATA_FILE = path.join(
+  __dirname,
+  '..',
+  '..',
+  'data',
+  'wiz-home.json'
+);
+
 let discoveredBulbs = [];
 let discoveryInProgress = false;
 let lastDiscoveryTime = null;
+let homeData = null;
+let homeDataLoadPromise = null;
+
+function validateHomeData(data) {
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    Array.isArray(data) ||
+    !Array.isArray(data.rooms) ||
+    !Array.isArray(data.devices)
+  ) {
+    throw new Error('Invalid home data structure.');
+  }
+
+  for (const room of data.rooms) {
+    if (
+      !room ||
+      typeof room.room_id !== 'number' ||
+      typeof room.name !== 'string'
+    ) {
+      throw new Error('Invalid room entry.');
+    }
+  }
+
+  for (const device of data.devices) {
+    if (
+      !device ||
+      typeof device.mac_address !== 'string' ||
+      typeof device.name !== 'string' ||
+      typeof device.room_id !== 'number'
+    ) {
+      throw new Error('Invalid device entry.');
+    }
+  }
+}
+
+async function loadHomeData() {
+  try {
+    const content = await fs.readFile(HOME_DATA_FILE, 'utf8');
+    const data = JSON.parse(content);
+
+    validateHomeData(data);
+    homeData = data;
+
+    logger.info(
+      `[API] WiZ metadata loaded | rooms=${data.rooms.length} | devices=${data.devices.length}`
+    );
+  } catch (error) {
+    homeData = null;
+
+    const reason = error.code === 'ENOENT'
+      ? 'File does not exist.'
+      : error instanceof SyntaxError
+        ? 'Invalid JSON.'
+        : error.message || 'Unknown error.';
+
+    logger.warn(`[API] WiZ metadata unavailable: ${reason}`);
+  }
+}
+
+function ensureHomeDataLoaded() {
+  if (!homeDataLoadPromise) {
+    homeDataLoadPromise = loadHomeData();
+  }
+
+  return homeDataLoadPromise;
+}
+
+function normalizeMac(mac) {
+  if (typeof mac !== 'string') {
+    return '';
+  }
+
+  return mac.replace(/[^a-f0-9]/gi, '').toLowerCase();
+}
+
+function getDeviceMetadata(mac) {
+  const emptyMetadata = {
+    roomName: null,
+    deviceName: null,
+    deviceType: null
+  };
+
+  if (!homeData || !Array.isArray(homeData.devices)) {
+    return emptyMetadata;
+  }
+
+  const normalizedMac = normalizeMac(mac);
+
+  if (!normalizedMac) {
+    return emptyMetadata;
+  }
+
+  const device = homeData.devices.find(
+    (item) => normalizeMac(item.mac_address) === normalizedMac
+  );
+
+  if (!device) {
+    return emptyMetadata;
+  }
+
+  const room = homeData.rooms.find(
+    (item) => item.room_id === device.room_id
+  );
+
+  return {
+    roomName: room?.name ?? null,
+    deviceName: device.name ?? null,
+    deviceType: device.type ?? null
+  };
+}
 
 function handleError(res, error) {
   logger.error('[API] System request failed:', error);
@@ -34,8 +155,8 @@ function getDiscoveredBulbs() {
 }
 
 function enrichDeviceInfo(bulb, info) {
-  const systemConfig = info.systemConfig || {};
-  const deviceState = info.state;
+  const systemConfig = info?.systemConfig || {};
+  const deviceState = info?.state;
 
   const state = deviceState && typeof deviceState === 'object'
     ? { ...deviceState }
@@ -46,11 +167,16 @@ function enrichDeviceInfo(bulb, info) {
     delete state.rssi;
   }
 
+  const metadata = getDeviceMetadata(bulb.mac);
+
   return {
     ip: bulb.ip,
     mac: bulb.mac,
     success: bulb.success,
     roomId: systemConfig.roomId ?? null,
+    roomName: metadata.roomName,
+    deviceName: metadata.deviceName,
+    deviceType: metadata.deviceType,
     moduleName: systemConfig.moduleName ?? null,
     firmwareVersion: systemConfig.fwVersion ?? null,
     state,
@@ -162,6 +288,8 @@ router.get('/discover', async (req, res) => {
   discoveryInProgress = true;
 
   try {
+    await ensureHomeDataLoaded();
+
     const devices = await discovery.discoverDevices();
 
     const enrichedDevices = await Promise.all(
@@ -175,11 +303,16 @@ router.get('/discover', async (req, res) => {
             error?.message || 'Unknown error'
           );
 
+          const metadata = getDeviceMetadata(bulb.mac);
+
           return {
             ip: bulb.ip,
             mac: bulb.mac,
             success: bulb.success,
             roomId: null,
+            roomName: metadata.roomName,
+            deviceName: metadata.deviceName,
+            deviceType: metadata.deviceType,
             moduleName: null,
             firmwareVersion: null,
             state: null,
