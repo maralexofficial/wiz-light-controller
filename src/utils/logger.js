@@ -20,6 +20,14 @@ const COLORS = Object.freeze({
   RESET: '\x1b[0m'
 });
 
+const COMPONENTS = Object.freeze([
+  'DISCOVERY',
+  'API',
+  'WIZ',
+  'SERVER',
+  'LOGGER'
+]);
+
 const logDirectory = path.resolve(
   process.cwd(),
   config.logDirectory
@@ -57,6 +65,38 @@ function getLogFileName() {
   return path.join(logDirectory, `app-${date}.log`);
 }
 
+function getComponent(message) {
+  const match = message.match(/^\[([A-Z][A-Z0-9_-]*)\]\s*/);
+
+  if (!match) {
+    return {
+      component: 'APP',
+      message
+    };
+  }
+
+  const candidate = match[1];
+  const component = COMPONENTS.includes(candidate)
+    ? candidate
+    : candidate;
+
+  return {
+    component,
+    message: message.slice(match[0].length)
+  };
+}
+
+function formatLine(level, timestamp, message) {
+  const { component, message: cleanMessage } = getComponent(message);
+  const paddedLevel = level.padEnd(5);
+  const paddedComponent = component.padEnd(9);
+
+  return (
+    `${timestamp} [${paddedLevel}] ` +
+    `[${paddedComponent}] ${cleanMessage}`
+  );
+}
+
 function rotateLogFile(filePath) {
   if (!fs.existsSync(filePath)) {
     return;
@@ -68,14 +108,12 @@ function rotateLogFile(filePath) {
     return;
   }
 
-  // Remove the oldest backup before shifting the remaining files.
   const oldestBackup = `${filePath}.${config.logMaxFiles}`;
 
   if (fs.existsSync(oldestBackup)) {
     fs.unlinkSync(oldestBackup);
   }
 
-  // Shift existing backups from oldest to newest.
   for (
     let index = config.logMaxFiles - 1;
     index >= 1;
@@ -89,7 +127,6 @@ function rotateLogFile(filePath) {
     }
   }
 
-  // Preserve the current log as the first backup.
   fs.renameSync(filePath, `${filePath}.1`);
 }
 
@@ -126,22 +163,37 @@ function log(level, ...args) {
 
   const timestamp = getTimestamp();
   const message = formatMessage(args);
-
-  const plainLine =
-    `${timestamp} [${normalizedLevel}] ${message}`;
+  const plainLine = formatLine(normalizedLevel, timestamp, message);
 
   if (config.logConsoleEnabled) {
     const color = COLORS[normalizedLevel];
+    const reset = COLORS.RESET;
+    const lines = plainLine.split('\n');
 
-    const consoleLine =
-      `${color}[${normalizedLevel}]${COLORS.RESET} ` +
-      `${timestamp} ${message}`;
+    const consoleLines = lines.map((line, index) => {
+      if (index === 0) {
+        const levelStart = line.indexOf('[');
+        const levelEnd = line.indexOf(']', levelStart);
+
+        if (levelStart !== -1 && levelEnd !== -1) {
+          return (
+            line.slice(0, levelStart) +
+            color +
+            line.slice(levelStart, levelEnd + 1) +
+            reset +
+            line.slice(levelEnd + 1)
+          );
+        }
+      }
+
+      return `         ${line}`;
+    });
 
     const output = normalizedLevel === 'ERROR'
       ? process.stderr
       : process.stdout;
 
-    output.write(`${consoleLine}\n`);
+    output.write(`${consoleLines.join('\n')}\n`);
   }
 
   writeToFile(plainLine);
