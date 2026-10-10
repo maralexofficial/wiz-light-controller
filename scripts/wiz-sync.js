@@ -1,4 +1,3 @@
-
 'use strict';
 
 const fs = require('node:fs/promises');
@@ -19,13 +18,18 @@ function validateHomeData(data) {
   }
 
   for (const room of data.rooms) {
-    if (typeof room.room_id !== 'number' || typeof room.name !== 'string') {
+    if (
+      !room ||
+      typeof room.room_id !== 'number' ||
+      typeof room.name !== 'string'
+    ) {
       throw new Error('The JSON contains an invalid room entry.');
     }
   }
 
   for (const device of data.devices) {
     if (
+      !device ||
       typeof device.mac_address !== 'string' ||
       typeof device.name !== 'string' ||
       typeof device.room_id !== 'number'
@@ -60,26 +64,29 @@ async function downloadHomeData(url) {
   });
 
   if (!response.ok) {
-    throw new Error(`WiZ download failed with HTTP status ${response.status}.`);
+    throw new Error(
+      `WiZ download failed with HTTP status ${response.status}. The integration link may have expired.`
+    );
   }
 
-  const contentType = response.headers.get('content-type') || '';
-
-  if (!contentType.includes('json')) {
-    throw new Error('The WiZ server did not return JSON data.');
-  }
+  const responseText = await response.text();
 
   let data;
 
   try {
-    data = await response.json();
+    data = JSON.parse(responseText);
   } catch {
-    throw new Error('The WiZ response contains invalid JSON.');
+    throw new Error(
+      'The WiZ response is not valid JSON. The integration link may have expired.'
+    );
   }
 
   validateHomeData(data);
 
-  return data;
+  // Do not persist the signing key when it is not needed by this controller.
+  const { udp_signing_key, ...safeData } = data;
+
+  return safeData;
 }
 
 async function saveHomeData(data) {
