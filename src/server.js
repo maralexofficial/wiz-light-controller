@@ -4,9 +4,41 @@ const app = require('./app');
 const config = require('./config');
 const wizService = require('./services/wiz.service');
 const logger = require('./utils/logger');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
+const HOME_DATA_FILE = path.join(__dirname, '..', 'data', 'wiz-home.json');
 
 let server;
 let shuttingDown = false;
+
+async function checkHomeData() {
+  try {
+    const content = await fs.readFile(HOME_DATA_FILE, 'utf8');
+    const data = JSON.parse(content);
+
+    if (
+      !data ||
+      typeof data !== 'object' ||
+      !Array.isArray(data.rooms) ||
+      !Array.isArray(data.devices)
+    ) {
+      throw new Error('Invalid home data structure.');
+    }
+
+    logger.info(
+      `[Server] WiZ home data loaded | rooms=${data.rooms.length} | devices=${data.devices.length}`
+    );
+  } catch (error) {
+    const reason = error.code === 'ENOENT'
+      ? 'File does not exist.'
+      : error instanceof SyntaxError
+        ? 'Invalid JSON.'
+        : error.message || 'Unknown error.';
+
+    logger.warn(`[Server] Optional WiZ home data unavailable: ${reason}`);
+  }
+}
 
 function startServer() {
   server = app.listen(config.port, config.host, () => {
@@ -26,7 +58,7 @@ function startServer() {
   });
 }
 
-function shutdown(signal) {
+async function shutdown(signal) {
   if (shuttingDown) {
     return;
   }
@@ -43,14 +75,13 @@ function shutdown(signal) {
   forceExitTimer.unref();
 
   if (!server) {
-    wizService.close()
-      .catch((error) => {
-        logger.error('[Server] UDP shutdown error:', error.message);
-      })
-      .finally(() => {
-        process.exit(0);
-      });
+    try {
+      await wizService.close();
+    } catch (error) {
+      logger.error('[Server] UDP shutdown error:', error.message);
+    }
 
+    process.exit(0);
     return;
   }
 
@@ -61,16 +92,10 @@ function shutdown(signal) {
 
     try {
       await wizService.close();
-
       logger.info('[Server] Shutdown completed.');
-
       process.exit(error ? 1 : 0);
     } catch (closeError) {
-      logger.error(
-        '[Server] UDP shutdown error:',
-        closeError.message
-      );
-
+      logger.error('[Server] UDP shutdown error:', closeError.message);
       process.exit(1);
     }
   });
@@ -79,4 +104,15 @@ function shutdown(signal) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-startServer();
+async function main() {
+  await checkHomeData();
+  startServer();
+}
+
+main().catch((error) => {
+  logger.warn(
+    `[Server] Optional initialization failed: ${error.message}`
+  );
+
+  startServer();
+});

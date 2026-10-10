@@ -1,8 +1,6 @@
 'use strict';
 
 const express = require('express');
-const fs = require('node:fs/promises');
-const path = require('node:path');
 
 const discovery = require('../services/discovery.service');
 const wiz = require('../services/wiz.service');
@@ -11,73 +9,9 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-const HOME_DATA_FILE = path.join(__dirname, '..', '..', 'data', 'wiz-home.json');
-
 let discoveredBulbs = [];
 let discoveryInProgress = false;
 let lastDiscoveryTime = null;
-let homeData = null;
-
-function validateHomeData(data) {
-  if (
-    !data ||
-    typeof data !== 'object' ||
-    Array.isArray(data) ||
-    !Array.isArray(data.rooms) ||
-    !Array.isArray(data.devices)
-  ) {
-    throw new Error('Invalid home data structure.');
-  }
-
-  for (const room of data.rooms) {
-    if (
-      !room ||
-      typeof room.room_id !== 'number' ||
-      typeof room.name !== 'string'
-    ) {
-      throw new Error('Invalid room entry.');
-    }
-  }
-
-  for (const device of data.devices) {
-    if (
-      !device ||
-      typeof device.mac_address !== 'string' ||
-      typeof device.name !== 'string' ||
-      typeof device.room_id !== 'number'
-    ) {
-      throw new Error('Invalid device entry.');
-    }
-  }
-}
-
-async function loadHomeData() {
-  try {
-    const content = await fs.readFile(HOME_DATA_FILE, 'utf8');
-    const data = JSON.parse(content);
-
-    validateHomeData(data);
-    homeData = data;
-
-    logger.info(
-      `[API] Optional WiZ home data loaded | rooms=${data.rooms.length} | devices=${data.devices.length}`
-    );
-
-    return true;
-  } catch (error) {
-    homeData = null;
-
-    const reason = error.code === 'ENOENT'
-      ? 'File does not exist.'
-      : error instanceof SyntaxError
-        ? 'File contains invalid JSON.'
-        : error.message || 'Unknown error.';
-
-    logger.warn(`[API] Optional WiZ home data unavailable: ${reason}`);
-
-    return false;
-  }
-}
 
 function handleError(res, error) {
   logger.error('[API] System request failed:', error);
@@ -214,14 +148,6 @@ async function runBulkStateRequest() {
     };
   });
 }
-
-// Load optional metadata without preventing the API from starting.
-loadHomeData().catch((error) => {
-  homeData = null;
-  logger.warn(
-    `[API] Optional WiZ home data could not be loaded: ${error.message}`
-  );
-});
 
 router.get('/discover', async (req, res) => {
   if (discoveryInProgress) {
