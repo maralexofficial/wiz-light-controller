@@ -34,7 +34,16 @@ function getDiscoveredBulbs() {
 
 function enrichDeviceInfo(bulb, info) {
   const systemConfig = info.systemConfig || {};
-  const state = info.state;
+  const deviceState = info.state;
+
+  const state = deviceState && typeof deviceState === 'object'
+    ? { ...deviceState }
+    : null;
+
+  if (state) {
+    delete state.mac;
+    delete state.rssi;
+  }
 
   return {
     ip: bulb.ip,
@@ -44,7 +53,7 @@ function enrichDeviceInfo(bulb, info) {
     moduleName: systemConfig.moduleName ?? null,
     firmwareVersion: systemConfig.fwVersion ?? null,
     state,
-    rssi: state?.rssi ?? null
+    rssi: deviceState?.rssi ?? null
   };
 }
 
