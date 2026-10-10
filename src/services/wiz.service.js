@@ -1,4 +1,3 @@
-
 'use strict';
 
 const dgram = require('node:dgram');

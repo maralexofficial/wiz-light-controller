@@ -1,4 +1,3 @@
-
 'use strict';
 
 const dgram = require('node:dgram');
@@ -31,12 +30,9 @@ function discoverDevices() {
 
 function performDiscovery() {
   return new Promise((resolve, reject) => {
-    const socket = dgram.createSocket({
-      type: 'udp4',
-      reuseAddr: true
-    });
-
+    const socket = dgram.createSocket('udp4');
     const devices = new Map();
+
     let finished = false;
     let timer = null;
 
@@ -71,10 +67,15 @@ function performDiscovery() {
         return;
       }
 
+      console.log(
+        `[Discovery] Completed. Found ${result.length} device(s).`
+      );
+
       resolve(result);
     }
 
     socket.on('error', (error) => {
+      console.error('[Discovery] UDP error:', error.message);
       finish(error);
     });
 
@@ -84,37 +85,36 @@ function performDiscovery() {
       try {
         response = JSON.parse(message.toString('utf8'));
       } catch {
+        console.warn(
+          `[Discovery] Ignored invalid JSON from ${remote.address}.`
+        );
         return;
       }
 
-      const params = response?.params;
-
-      if (!params || typeof params !== 'object') {
-        return;
-      }
-
+      const params = response?.params || {};
       const mac = typeof params.mac === 'string'
         ? params.mac.toLowerCase()
         : '';
 
-      const ip = remote.address;
-
-      if (!mac || !ip) {
+      if (!mac) {
+        console.log(
+          `[Discovery] Received a response from ${remote.address}, but no MAC address was present.`
+        );
         return;
       }
 
-      devices.set(ip, {
-        ip,
+      devices.set(remote.address, {
+        ip: remote.address,
         mac,
         success: true
       });
+
+      console.log(
+        `[Discovery] Found device ${remote.address} (${mac}).`
+      );
     });
 
     socket.bind(0, '0.0.0.0', () => {
-      if (finished) {
-        return;
-      }
-
       try {
         socket.setBroadcast(true);
       } catch (error) {
@@ -132,9 +132,17 @@ function performDiscovery() {
         DISCOVERY_ADDRESS,
         (error) => {
           if (error) {
+            console.error(
+              '[Discovery] Failed to send broadcast:',
+              error.message
+            );
             finish(error);
             return;
           }
+
+          console.log(
+            `[Discovery] Broadcast sent to ${DISCOVERY_ADDRESS}:${config.wizPort}.`
+          );
 
           timer = setTimeout(() => {
             finish();
