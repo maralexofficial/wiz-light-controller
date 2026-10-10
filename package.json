@@ -18,12 +18,13 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "wiz:sync": "node scripts/wiz-sync.js",
     "pm2:start": "pm2 start ecosystem.config.js",
-    "pm2:stop": "pm2 stop wiz-api",
-    "pm2:restart": "pm2 restart wiz-api",
-    "pm2:logs": "pm2 logs wiz-api",
+    "pm2:stop": "pm2 stop wiz-light-controller",
+    "pm2:restart": "pm2 restart wiz-light-controller",
+    "pm2:logs": "pm2 logs wiz-light-controller",
     "pm2:status": "pm2 status",
-    "pm2:delete": "pm2 delete wiz-api"
+    "pm2:delete": "pm2 delete wiz-light-controller"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
