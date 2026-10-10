@@ -1,3 +1,4 @@
+
 'use strict';
 
 const express = require('express');
@@ -50,7 +51,15 @@ app.use((error, req, res, next) => {
     return next(error);
   }
 
-  if (error instanceof SyntaxError && error.status === 400) {
+  if (
+    error instanceof SyntaxError &&
+    error.status === 400 &&
+    Object.prototype.hasOwnProperty.call(error, 'body')
+  ) {
+    logger.warn(
+      `[API] Invalid JSON request | method=${req.method} | path=${req.path}`
+    );
+
     return response.failure(
       res,
       400,
@@ -60,6 +69,10 @@ app.use((error, req, res, next) => {
   }
 
   if (error.type === 'entity.too.large') {
+    logger.warn(
+      `[API] Request body too large | method=${req.method} | path=${req.path}`
+    );
+
     return response.failure(
       res,
       413,
@@ -69,6 +82,10 @@ app.use((error, req, res, next) => {
   }
 
   if (error.type === 'entity.parse.failed') {
+    logger.warn(
+      `[API] Invalid JSON request | method=${req.method} | path=${req.path}`
+    );
+
     return response.failure(
       res,
       400,
@@ -77,7 +94,10 @@ app.use((error, req, res, next) => {
     );
   }
 
-  logger.error('[API] Internal server error:', error);
+  logger.error(
+    `[API] Internal server error | method=${req.method} | path=${req.path}`,
+    error
+  );
 
   return response.failure(
     res,

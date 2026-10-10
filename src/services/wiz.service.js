@@ -32,7 +32,7 @@ socket.on('message', (message, remote) => {
     response = JSON.parse(message.toString('utf8'));
   } catch {
     logger.warn(
-      `[WiZ UDP] Invalid JSON response received from ${remote.address}.`
+      `[WIZ] Invalid JSON response received from ${remote.address}.`
     );
     return;
   }
@@ -44,7 +44,7 @@ socket.on('message', (message, remote) => {
 });
 
 socket.on('error', (error) => {
-  logger.error('[WiZ UDP] Socket error:', error.message);
+  logger.error('[WIZ] UDP socket error:', error.message);
 
   socketReady = false;
   socketStarting = false;
@@ -190,7 +190,7 @@ function sendCommand(ip, command) {
 
   if (closed) {
     return Promise.reject(
-      new Error('The UDP service has been shut down.')
+      new Error('The WiZ service has been shut down.')
     );
   }
 
@@ -237,13 +237,9 @@ async function toggle(ip) {
     throw new Error(`Invalid state response received from ${ip}.`);
   }
 
-  const currentlyOn = Boolean(response.result.state);
-
-  if (currentlyOn) {
-    return turnOff(ip);
-  }
-
-  return turnOn(ip);
+  return response.result.state
+    ? turnOff(ip)
+    : turnOn(ip);
 }
 
 function setBrightness(ip, brightness) {
@@ -292,6 +288,43 @@ function getState(ip) {
   });
 }
 
+function getSystemConfig(ip) {
+  return sendCommand(ip, {
+    method: 'getSystemConfig',
+    params: {}
+  });
+}
+
+async function getDeviceInfo(ip) {
+  const [stateResult, configResult] = await Promise.allSettled([
+    getState(ip),
+    getSystemConfig(ip)
+  ]);
+
+  const state = stateResult.status === 'fulfilled'
+    ? stateResult.value?.result ?? null
+    : null;
+
+  const systemConfig = configResult.status === 'fulfilled'
+    ? configResult.value?.result ?? null
+    : null;
+
+  return {
+    ip,
+    success: stateResult.status === 'fulfilled',
+    state,
+    systemConfig,
+    errors: {
+      state: stateResult.status === 'rejected'
+        ? stateResult.reason?.message || 'State request failed.'
+        : null,
+      systemConfig: configResult.status === 'rejected'
+        ? configResult.reason?.message || 'System configuration request failed.'
+        : null
+    }
+  };
+}
+
 async function close() {
   if (closed) {
     return;
@@ -334,5 +367,7 @@ module.exports = {
   setBrightness,
   setColor,
   getState,
+  getSystemConfig,
+  getDeviceInfo,
   close
 };

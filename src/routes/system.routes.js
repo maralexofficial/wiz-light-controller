@@ -32,6 +32,53 @@ function getDiscoveredBulbs() {
   return discoveredBulbs.map((bulb) => ({ ...bulb }));
 }
 
+function getDeviceType(systemConfig) {
+  const values = [
+    systemConfig?.moduleName,
+    systemConfig?.type,
+    systemConfig?.model
+  ];
+
+  const model = values
+    .filter((value) => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+
+  if (!model) {
+    return null;
+  }
+
+  if (/plug|socket|outlet/.test(model)) {
+    return 'plug';
+  }
+
+  if (/strip|lightstrip|led.?strip/.test(model)) {
+    return 'light_strip';
+  }
+
+  if (/bulb|lamp|light/.test(model)) {
+    return 'bulb';
+  }
+
+  return 'unknown';
+}
+
+function enrichDeviceInfo(bulb, info) {
+  const systemConfig = info.systemConfig || {};
+
+  return {
+    ...bulb,
+    label: bulb.label ?? null,
+    room: bulb.room ?? systemConfig.roomName ?? null,
+    roomId: systemConfig.roomId ?? null,
+    type: bulb.type ?? getDeviceType(systemConfig),
+    moduleName: systemConfig.moduleName ?? null,
+    firmwareVersion: systemConfig.fwVersion ?? null,
+    state: info.state,
+    infoErrors: info.errors
+  };
+}
+
 async function runBroadcast(action) {
   const bulbs = getDiscoveredBulbs();
 
@@ -136,11 +183,42 @@ router.get('/discover', async (req, res) => {
   discoveryInProgress = true;
 
   try {
-    discoveredBulbs = await discovery.discoverDevices();
+    const devices = await discovery.discoverDevices();
+
+    const enrichedDevices = await Promise.all(
+      devices.map(async (bulb) => {
+        try {
+          const info = await wiz.getDeviceInfo(bulb.ip);
+          return enrichDeviceInfo(bulb, info);
+        } catch (error) {
+          logger.warn(
+            `[API] Device information request failed for ${bulb.ip}:`,
+            error?.message || 'Unknown error'
+          );
+
+          return {
+            ...bulb,
+            label: bulb.label ?? null,
+            room: bulb.room ?? null,
+            roomId: null,
+            type: bulb.type ?? null,
+            moduleName: null,
+            firmwareVersion: null,
+            state: null,
+            infoErrors: {
+              state: 'Device information unavailable.',
+              systemConfig: 'Device information unavailable.'
+            }
+          };
+        }
+      })
+    );
+
+    discoveredBulbs = enrichedDevices;
     lastDiscoveryTime = Date.now();
 
     logger.info(
-      `[API] Discovery completed. Found ${discoveredBulbs.length} device(s).`
+      `[API] Discovery completed | devices=${discoveredBulbs.length}`
     );
 
     return response.success(res, {
