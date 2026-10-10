@@ -124,10 +124,26 @@ const config = {
 
   discoveryTimeoutMs: parseInteger(
     process.env.DISCOVERY_TIMEOUT_MS,
-    3000,
+    5000,
     'DISCOVERY_TIMEOUT_MS',
     500,
     30000
+  ),
+
+  discoveryBroadcastIntervalMs: parseInteger(
+    process.env.DISCOVERY_BROADCAST_INTERVAL_MS,
+    1000,
+    'DISCOVERY_BROADCAST_INTERVAL_MS',
+    250,
+    10000
+  ),
+
+  discoveryCooldownMs: parseInteger(
+    process.env.DISCOVERY_COOLDOWN_MS,
+    5000,
+    'DISCOVERY_COOLDOWN_MS',
+    0,
+    300000
   ),
 
   commandTimeoutMs: parseInteger(

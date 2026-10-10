@@ -14,6 +14,8 @@ const DISCOVERY_MESSAGE = {
 };
 
 let activeDiscovery = null;
+let cachedDevices = [];
+let lastDiscoveryCompletedAt = 0;
 
 function discoverDevices() {
   if (activeDiscovery) {
@@ -21,9 +23,30 @@ function discoverDevices() {
     return activeDiscovery;
   }
 
-  activeDiscovery = performDiscovery().finally(() => {
-    activeDiscovery = null;
-  });
+  const now = Date.now();
+  const cooldownMs = config.discoveryCooldownMs;
+  const cacheIsValid =
+    lastDiscoveryCompletedAt > 0 &&
+    now - lastDiscoveryCompletedAt < cooldownMs;
+
+  if (cacheIsValid) {
+    logger.info('[Discovery] Returning cached discovery results.');
+
+    return Promise.resolve(cachedDevices.map((device) => ({
+      ...device
+    })));
+  }
+
+  activeDiscovery = performDiscovery()
+    .then((devices) => {
+      cachedDevices = devices.map((device) => ({ ...device }));
+      lastDiscoveryCompletedAt = Date.now();
+
+      return devices;
+    })
+    .finally(() => {
+      activeDiscovery = null;
+    });
 
   return activeDiscovery;
 }
@@ -34,12 +57,23 @@ function performDiscovery() {
     const devices = new Map();
 
     let finished = false;
-    let timer = null;
+    let scanTimer = null;
+    let broadcastTimer = null;
+    let broadcastInProgress = false;
+
+    const payload = Buffer.from(
+      JSON.stringify(DISCOVERY_MESSAGE)
+    );
 
     function cleanup() {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
+      if (scanTimer) {
+        clearTimeout(scanTimer);
+        scanTimer = null;
+      }
+
+      if (broadcastTimer) {
+        clearInterval(broadcastTimer);
+        broadcastTimer = null;
       }
 
       socket.removeAllListeners();
@@ -57,6 +91,7 @@ function performDiscovery() {
       }
 
       finished = true;
+
       const discoveredDevices = Array.from(devices.values());
 
       cleanup();
@@ -71,6 +106,40 @@ function performDiscovery() {
       );
 
       resolve(discoveredDevices);
+    }
+
+    function sendBroadcast() {
+      if (finished || broadcastInProgress) {
+        return;
+      }
+
+      broadcastInProgress = true;
+
+      socket.send(
+        payload,
+        config.wizPort,
+        config.discoveryAddress,
+        (error) => {
+          broadcastInProgress = false;
+
+          if (finished) {
+            return;
+          }
+
+          if (error) {
+            logger.warn(
+              '[Discovery] Broadcast attempt failed:',
+              error.message
+            );
+
+            return;
+          }
+
+          logger.debug(
+            `[Discovery] Broadcast sent to ${config.discoveryAddress}:${config.wizPort}.`
+          );
+        }
+      );
     }
 
     socket.on('error', (error) => {
@@ -139,34 +208,18 @@ function performDiscovery() {
         return;
       }
 
-      const payload = Buffer.from(
-        JSON.stringify(DISCOVERY_MESSAGE)
+      logger.info('[Discovery] Starting device scan.');
+
+      sendBroadcast();
+
+      broadcastTimer = setInterval(
+        sendBroadcast,
+        config.discoveryBroadcastIntervalMs
       );
 
-      socket.send(
-        payload,
-        config.wizPort,
-        config.discoveryAddress,
-        (error) => {
-          if (error) {
-            logger.error(
-              '[Discovery] Failed to send broadcast:',
-              error.message
-            );
-
-            finish(error);
-            return;
-          }
-
-          logger.info(
-            `[Discovery] Broadcast sent to ${config.discoveryAddress}:${config.wizPort}.`
-          );
-
-          timer = setTimeout(
-            () => finish(),
-            config.discoveryTimeoutMs
-          );
-        }
+      scanTimer = setTimeout(
+        () => finish(),
+        config.discoveryTimeoutMs
       );
     });
   });
