@@ -7,7 +7,12 @@ const logger = require('./utils/logger');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const HOME_DATA_FILE = path.join(__dirname, '..', 'data', 'wiz-home.json');
+const HOME_DATA_FILE = path.join(
+  __dirname,
+  '..',
+  'data',
+  'wiz-home.json'
+);
 
 let server;
 let shuttingDown = false;
@@ -27,7 +32,7 @@ async function checkHomeData() {
     }
 
     logger.info(
-      `[Server] WiZ home data loaded | rooms=${data.rooms.length} | devices=${data.devices.length}`
+      `[SERVER] WiZ home data loaded | rooms=${data.rooms.length} | devices=${data.devices.length}`
     );
   } catch (error) {
     const reason = error.code === 'ENOENT'
@@ -36,24 +41,24 @@ async function checkHomeData() {
         ? 'Invalid JSON.'
         : error.message || 'Unknown error.';
 
-    logger.warn(`[Server] Optional WiZ home data unavailable: ${reason}`);
+    logger.warn(
+      `[SERVER] Optional WiZ home data unavailable: ${reason}`
+    );
   }
 }
 
 function startServer() {
   server = app.listen(config.port, config.host, () => {
-    logger.info('[Server] WiZ Light Controller API started.');
-    logger.info(`[Server] Listening on ${config.host}:${config.port}`);
-    logger.info(`[Server] Environment: ${config.nodeEnv}`);
+    logger.info('[SERVER] WiZ Light Controller API started.');
     logger.info(
-      `[Server] API authentication: ${
-        config.apiAuthEnabled ? 'enabled' : 'disabled'
-      }`
+      `[SERVER] Listening on ${config.host}:${config.port}`
     );
+    logger.info(`[SERVER] Environment: ${config.nodeEnv}`);
+    logger.info('[SERVER] API authentication: required');
   });
 
   server.on('error', (error) => {
-    logger.error('[Server] Failed to start:', error.message);
+    logger.error('[SERVER] Failed to start:', error.message);
     process.exitCode = 1;
   });
 }
@@ -65,10 +70,10 @@ async function shutdown(signal) {
 
   shuttingDown = true;
 
-  logger.info(`[Server] Received ${signal}. Shutting down...`);
+  logger.info(`[SERVER] Received ${signal}. Shutting down...`);
 
   const forceExitTimer = setTimeout(() => {
-    logger.error('[Server] Graceful shutdown timed out.');
+    logger.error('[SERVER] Graceful shutdown timed out.');
     process.exit(1);
   }, 10000);
 
@@ -78,7 +83,7 @@ async function shutdown(signal) {
     try {
       await wizService.close();
     } catch (error) {
-      logger.error('[Server] UDP shutdown error:', error.message);
+      logger.error('[SERVER] UDP shutdown error:', error.message);
     }
 
     process.exit(0);
@@ -87,15 +92,18 @@ async function shutdown(signal) {
 
   server.close(async (error) => {
     if (error) {
-      logger.error('[Server] HTTP shutdown error:', error.message);
+      logger.error('[SERVER] HTTP shutdown error:', error.message);
     }
 
     try {
       await wizService.close();
-      logger.info('[Server] Shutdown completed.');
+      logger.info('[SERVER] Shutdown completed.');
       process.exit(error ? 1 : 0);
     } catch (closeError) {
-      logger.error('[Server] UDP shutdown error:', closeError.message);
+      logger.error(
+        '[SERVER] UDP shutdown error:',
+        closeError.message
+      );
       process.exit(1);
     }
   });
@@ -110,9 +118,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  logger.warn(
-    `[Server] Optional initialization failed: ${error.message}`
+  logger.error(
+    `[SERVER] Initialization failed: ${error.message}`
   );
-
-  startServer();
+  process.exitCode = 1;
 });

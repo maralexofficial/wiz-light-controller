@@ -15,10 +15,6 @@ function unauthorized(res) {
 }
 
 function authMiddleware(req, res, next) {
-  if (!config.apiAuthEnabled) {
-    return next();
-  }
-
   const authorization = req.get('authorization');
 
   if (!authorization || typeof authorization !== 'string') {
@@ -39,11 +35,8 @@ function authMiddleware(req, res, next) {
     return unauthorized(res);
   }
 
-  const providedToken = match[1];
-  const expectedToken = config.apiToken;
-
-  const providedBuffer = Buffer.from(providedToken, 'utf8');
-  const expectedBuffer = Buffer.from(expectedToken, 'utf8');
+  const providedBuffer = Buffer.from(match[1], 'utf8');
+  const expectedBuffer = Buffer.from(config.apiToken, 'utf8');
 
   if (providedBuffer.length !== expectedBuffer.length) {
     logger.warn(
