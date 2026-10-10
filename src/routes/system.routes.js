@@ -1,10 +1,10 @@
-
 'use strict';
 
 const express = require('express');
 const discovery = require('../services/discovery.service');
 const wiz = require('../services/wiz.service');
 const response = require('../utils/response');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -13,9 +13,10 @@ let discoveryInProgress = false;
 let lastDiscoveryTime = null;
 
 function handleError(res, error) {
-  console.error('[API] System request failed:', error.message);
+  logger.error('[API] System request failed:', error);
 
-  const isTimeout = error.message.includes('did not respond in time');
+  const message = error?.message || '';
+  const isTimeout = message.includes('did not respond in time');
 
   return response.failure(
     res,
@@ -27,9 +28,15 @@ function handleError(res, error) {
   );
 }
 
+function getDiscoveredBulbs() {
+  return discoveredBulbs.map((bulb) => ({ ...bulb }));
+}
+
 async function runBroadcast(action) {
+  const bulbs = getDiscoveredBulbs();
+
   const results = await Promise.allSettled(
-    discoveredBulbs.map(async (bulb) => {
+    bulbs.map(async (bulb) => {
       const result = action === 'on'
         ? await wiz.turnOn(bulb.ip)
         : await wiz.turnOff(bulb.ip);
@@ -48,13 +55,69 @@ async function runBroadcast(action) {
       return entry.value;
     }
 
+    const error = entry.reason;
+
+    logger.warn(
+      `[API] Broadcast ${action} failed for ${bulbs[index].ip}:`,
+      error?.message || 'Unknown error'
+    );
+
     return {
-      ip: discoveredBulbs[index].ip,
+      ip: bulbs[index].ip,
       success: false,
       result: null,
       error: {
-        code: 'DEVICE_OPERATION_FAILED',
-        message: entry.reason?.message || 'Unknown error'
+        code: error?.message?.includes('did not respond in time')
+          ? 'DEVICE_TIMEOUT'
+          : 'DEVICE_OPERATION_FAILED',
+        message: error?.message || 'Unknown error'
+      }
+    };
+  });
+}
+
+async function runBulkStateRequest() {
+  const bulbs = getDiscoveredBulbs();
+
+  const results = await Promise.allSettled(
+    bulbs.map(async (bulb) => {
+      const state = await wiz.getState(bulb.ip);
+
+      return {
+        ip: bulb.ip,
+        success: true,
+        state: state.result,
+        error: null
+      };
+    })
+  );
+
+  return results.map((entry, index) => {
+    if (entry.status === 'fulfilled') {
+      return entry.value;
+    }
+
+    const error = entry.reason;
+    const isTimeout = error?.message?.includes(
+      'did not respond in time'
+    );
+
+    logger.warn(
+      `[API] State request failed for ${bulbs[index].ip}:`,
+      error?.message || 'Unknown error'
+    );
+
+    return {
+      ip: bulbs[index].ip,
+      success: false,
+      state: null,
+      error: {
+        code: isTimeout
+          ? 'DEVICE_TIMEOUT'
+          : 'DEVICE_OPERATION_FAILED',
+        message: isTimeout
+          ? 'The device did not respond in time.'
+          : 'The device operation failed.'
       }
     };
   });
@@ -76,9 +139,13 @@ router.get('/discover', async (req, res) => {
     discoveredBulbs = await discovery.discoverDevices();
     lastDiscoveryTime = Date.now();
 
+    logger.info(
+      `[API] Discovery completed. Found ${discoveredBulbs.length} device(s).`
+    );
+
     return response.success(res, {
       count: discoveredBulbs.length,
-      bulbs: discoveredBulbs,
+      bulbs: getDiscoveredBulbs(),
       lastDiscoveryTime
     });
   } catch (error) {
@@ -91,9 +158,40 @@ router.get('/discover', async (req, res) => {
 router.get('/bulbs', (req, res) => {
   return response.success(res, {
     count: discoveredBulbs.length,
-    bulbs: discoveredBulbs,
+    bulbs: getDiscoveredBulbs(),
     lastDiscoveryTime
   });
+});
+
+router.get('/states', async (req, res) => {
+  if (discoveredBulbs.length === 0) {
+    return response.failure(
+      res,
+      503,
+      'NO_DISCOVERED_DEVICES',
+      'No discovered devices are available. Call GET /api/discover first.'
+    );
+  }
+
+  try {
+    const results = await runBulkStateRequest();
+    const succeeded = results.filter((item) => item.success).length;
+    const failed = results.length - succeeded;
+
+    return response.success(
+      res,
+      {
+        count: results.length,
+        succeeded,
+        failed,
+        lastDiscoveryTime,
+        results
+      },
+      failed > 0 ? 207 : 200
+    );
+  } catch (error) {
+    return handleError(res, error);
+  }
 });
 
 router.post('/broadcast/on', async (req, res) => {
