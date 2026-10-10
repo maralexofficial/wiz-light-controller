@@ -32,50 +32,19 @@ function getDiscoveredBulbs() {
   return discoveredBulbs.map((bulb) => ({ ...bulb }));
 }
 
-function getDeviceType(systemConfig) {
-  const values = [
-    systemConfig?.moduleName,
-    systemConfig?.type,
-    systemConfig?.model
-  ];
-
-  const model = values
-    .filter((value) => typeof value === 'string')
-    .join(' ')
-    .toLowerCase();
-
-  if (!model) {
-    return null;
-  }
-
-  if (/plug|socket|outlet/.test(model)) {
-    return 'plug';
-  }
-
-  if (/strip|lightstrip|led.?strip/.test(model)) {
-    return 'light_strip';
-  }
-
-  if (/bulb|lamp|light/.test(model)) {
-    return 'bulb';
-  }
-
-  return 'unknown';
-}
-
 function enrichDeviceInfo(bulb, info) {
   const systemConfig = info.systemConfig || {};
+  const state = info.state;
 
   return {
-    ...bulb,
-    label: bulb.label ?? null,
-    room: bulb.room ?? systemConfig.roomName ?? null,
+    ip: bulb.ip,
+    mac: bulb.mac,
+    success: bulb.success,
     roomId: systemConfig.roomId ?? null,
-    type: bulb.type ?? getDeviceType(systemConfig),
     moduleName: systemConfig.moduleName ?? null,
     firmwareVersion: systemConfig.fwVersion ?? null,
-    state: info.state,
-    infoErrors: info.errors
+    state,
+    rssi: state?.rssi ?? null
   };
 }
 
@@ -197,18 +166,14 @@ router.get('/discover', async (req, res) => {
           );
 
           return {
-            ...bulb,
-            label: bulb.label ?? null,
-            room: bulb.room ?? null,
+            ip: bulb.ip,
+            mac: bulb.mac,
+            success: bulb.success,
             roomId: null,
-            type: bulb.type ?? null,
             moduleName: null,
             firmwareVersion: null,
             state: null,
-            infoErrors: {
-              state: 'Device information unavailable.',
-              systemConfig: 'Device information unavailable.'
-            }
+            rssi: null
           };
         }
       })
