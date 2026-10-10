@@ -1,31 +1,36 @@
 {
   "name": "wiz-light-controller",
-  "version": "1.0.0",
-  "description": "",
-  "main": "server.js",
-  "author": {
-    "name": "CodeWithShinde",
-    "email": "codewithshinde@gmail.com",
-    "url": "https://github.com/codewithshinde"
-  },
+  "version": "2.0.0",
+  "description": "Modular WiZ REST API controller",
+  "main": "src/server.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/codewithshinde/wiz-light-controller.git"
   },
-  "keywords": [],
+  "keywords": [
+    "wiz",
+    "smart-home",
+    "rest-api",
+    "express",
+    "pm2"
+  ],
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/codewithshinde/wiz-light-controller/issues"
-  },
-  "homepage": "https://github.com/codewithshinde/wiz-light-controller#readme",
-    "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop wiz-api",
+    "pm2:restart": "pm2 restart wiz-api",
+    "pm2:logs": "pm2 logs wiz-api",
+    "pm2:status": "pm2 status",
+    "pm2:delete": "pm2 delete wiz-api"
   },
   "dependencies": {
+    "dotenv": "^16.4.7",
     "express": "^4.18.2"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "pm2": "^6.0.0"
   }
 }
