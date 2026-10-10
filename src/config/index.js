@@ -1,4 +1,3 @@
-
 'use strict';
 
 const dotenv = require('dotenv');
@@ -44,13 +43,31 @@ function parseInteger(value, defaultValue, name, min, max) {
 }
 
 function parseString(value, defaultValue, name) {
-  const result = value === undefined ? defaultValue : String(value).trim();
+  const result = value === undefined
+    ? defaultValue
+    : String(value).trim();
 
   if (!result) {
     throw new Error(`${name} must not be empty.`);
   }
 
   return result;
+}
+
+function parseLogLevel(value) {
+  const normalized = String(value || 'INFO')
+    .trim()
+    .toUpperCase();
+
+  const allowed = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
+
+  if (!allowed.includes(normalized)) {
+    throw new Error(
+      'LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR.'
+    );
+  }
+
+  return normalized;
 }
 
 const config = {
@@ -74,6 +91,35 @@ const config = {
     'WIZ_PORT',
     1,
     65535
+  ),
+
+  discoveryAddress: parseString(
+    process.env.DISCOVERY_ADDRESS,
+    '255.255.255.255',
+    'DISCOVERY_ADDRESS'
+  ),
+
+  discoveryBindAddress: parseString(
+    process.env.DISCOVERY_BIND_ADDRESS,
+    '0.0.0.0',
+    'DISCOVERY_BIND_ADDRESS'
+  ),
+
+  discoveryPhoneMac: parseString(
+    process.env.DISCOVERY_PHONE_MAC,
+    'ffffffffffff',
+    'DISCOVERY_PHONE_MAC'
+  ),
+
+  discoveryRegister: parseBoolean(
+    process.env.DISCOVERY_REGISTER,
+    false
+  ),
+
+  discoveryPhoneIp: parseString(
+    process.env.DISCOVERY_PHONE_IP,
+    '0.0.0.0',
+    'DISCOVERY_PHONE_IP'
   ),
 
   discoveryTimeoutMs: parseInteger(
@@ -101,11 +147,39 @@ const config = {
     ? process.env.API_TOKEN.trim()
     : '',
 
-  logLevel: parseString(
-    process.env.LOG_LEVEL,
-    'info',
-    'LOG_LEVEL'
-  ).toLowerCase(),
+  logLevel: parseLogLevel(process.env.LOG_LEVEL),
+
+  logConsoleEnabled: parseBoolean(
+    process.env.LOG_CONSOLE,
+    true
+  ),
+
+  logFileEnabled: parseBoolean(
+    process.env.LOG_FILE,
+    true
+  ),
+
+  logDirectory: parseString(
+    process.env.LOG_DIR,
+    'logs',
+    'LOG_DIR'
+  ),
+
+  logMaxSizeMb: parseInteger(
+    process.env.LOG_MAX_SIZE_MB,
+    5,
+    'LOG_MAX_SIZE_MB',
+    1,
+    100
+  ),
+
+  logMaxFiles: parseInteger(
+    process.env.LOG_MAX_FILES,
+    5,
+    'LOG_MAX_FILES',
+    1,
+    20
+  ),
 
   nodeEnv: parseString(
     process.env.NODE_ENV,
@@ -117,12 +191,6 @@ const config = {
 if (config.apiAuthEnabled && config.apiToken.length < 32) {
   throw new Error(
     'API authentication is enabled, but API_TOKEN must contain at least 32 characters.'
-  );
-}
-
-if (!['debug', 'info', 'warn', 'error'].includes(config.logLevel)) {
-  throw new Error(
-    'LOG_LEVEL must be debug, info, warn, or error.'
   );
 }
 

@@ -3,6 +3,7 @@
 const express = require('express');
 const authMiddleware = require('./middleware/auth.middleware');
 const response = require('./utils/response');
+const logger = require('./utils/logger');
 
 const bulbsRouter = require('./routes/bulbs.routes');
 const systemRouter = require('./routes/system.routes');
@@ -76,7 +77,7 @@ app.use((error, req, res, next) => {
     );
   }
 
-  console.error('[API] Internal server error:', error.message);
+  logger.error('[API] Internal server error:', error);
 
   return response.failure(
     res,

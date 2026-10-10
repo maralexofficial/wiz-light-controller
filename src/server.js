@@ -1,19 +1,19 @@
-
 'use strict';
 
 const app = require('./app');
 const config = require('./config');
 const wizService = require('./services/wiz.service');
+const logger = require('./utils/logger');
 
 let server;
 let shuttingDown = false;
 
 function startServer() {
   server = app.listen(config.port, config.host, () => {
-    console.log('[Server] WiZ Light Controller API started.');
-    console.log(`[Server] Listening on ${config.host}:${config.port}`);
-    console.log(`[Server] Environment: ${config.nodeEnv}`);
-    console.log(
+    logger.info('[Server] WiZ Light Controller API started.');
+    logger.info(`[Server] Listening on ${config.host}:${config.port}`);
+    logger.info(`[Server] Environment: ${config.nodeEnv}`);
+    logger.info(
       `[Server] API authentication: ${
         config.apiAuthEnabled ? 'enabled' : 'disabled'
       }`
@@ -21,7 +21,7 @@ function startServer() {
   });
 
   server.on('error', (error) => {
-    console.error('[Server] Failed to start:', error.message);
+    logger.error('[Server] Failed to start:', error.message);
     process.exitCode = 1;
   });
 }
@@ -33,10 +33,10 @@ function shutdown(signal) {
 
   shuttingDown = true;
 
-  console.log(`[Server] Received ${signal}. Shutting down...`);
+  logger.info(`[Server] Received ${signal}. Shutting down...`);
 
   const forceExitTimer = setTimeout(() => {
-    console.error('[Server] Graceful shutdown timed out.');
+    logger.error('[Server] Graceful shutdown timed out.');
     process.exit(1);
   }, 10000);
 
@@ -45,7 +45,7 @@ function shutdown(signal) {
   if (!server) {
     wizService.close()
       .catch((error) => {
-        console.error('[Server] UDP shutdown error:', error.message);
+        logger.error('[Server] UDP shutdown error:', error.message);
       })
       .finally(() => {
         process.exit(0);
@@ -56,15 +56,17 @@ function shutdown(signal) {
 
   server.close(async (error) => {
     if (error) {
-      console.error('[Server] HTTP shutdown error:', error.message);
+      logger.error('[Server] HTTP shutdown error:', error.message);
     }
 
     try {
       await wizService.close();
-      console.log('[Server] Shutdown completed.');
+
+      logger.info('[Server] Shutdown completed.');
+
       process.exit(error ? 1 : 0);
     } catch (closeError) {
-      console.error(
+      logger.error(
         '[Server] UDP shutdown error:',
         closeError.message
       );

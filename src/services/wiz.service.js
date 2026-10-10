@@ -3,6 +3,7 @@
 const dgram = require('node:dgram');
 const net = require('node:net');
 const config = require('../config');
+const logger = require('../utils/logger');
 
 const socket = dgram.createSocket('udp4');
 
@@ -30,6 +31,9 @@ socket.on('message', (message, remote) => {
   try {
     response = JSON.parse(message.toString('utf8'));
   } catch {
+    logger.warn(
+      `[WiZ UDP] Invalid JSON response received from ${remote.address}.`
+    );
     return;
   }
 
@@ -40,7 +44,7 @@ socket.on('message', (message, remote) => {
 });
 
 socket.on('error', (error) => {
-  console.error('[WiZ UDP] Socket error:', error.message);
+  logger.error('[WiZ UDP] Socket error:', error.message);
 
   socketReady = false;
   socketStarting = false;

@@ -1,17 +1,15 @@
-
 'use strict';
 
 const dgram = require('node:dgram');
 const config = require('../config');
-
-const DISCOVERY_ADDRESS = '255.255.255.255';
+const logger = require('../utils/logger');
 
 const DISCOVERY_MESSAGE = {
   method: 'registration',
   params: {
-    phoneMac: 'ffffffffffff',
-    register: false,
-    phoneIp: '0.0.0.0'
+    phoneMac: config.discoveryPhoneMac,
+    register: config.discoveryRegister,
+    phoneIp: config.discoveryPhoneIp
   }
 };
 
@@ -19,6 +17,7 @@ let activeDiscovery = null;
 
 function discoverDevices() {
   if (activeDiscovery) {
+    logger.debug('[Discovery] Reusing active discovery request.');
     return activeDiscovery;
   }
 
@@ -58,7 +57,7 @@ function performDiscovery() {
       }
 
       finished = true;
-      const result = Array.from(devices.values());
+      const discoveredDevices = Array.from(devices.values());
 
       cleanup();
 
@@ -67,15 +66,15 @@ function performDiscovery() {
         return;
       }
 
-      console.log(
-        `[Discovery] Completed. Found ${result.length} device(s).`
+      logger.info(
+        `[Discovery] Completed. Found ${discoveredDevices.length} device(s).`
       );
 
-      resolve(result);
+      resolve(discoveredDevices);
     }
 
     socket.on('error', (error) => {
-      console.error('[Discovery] UDP error:', error.message);
+      logger.error('[Discovery] UDP error:', error.message);
       finish(error);
     });
 
@@ -85,7 +84,7 @@ function performDiscovery() {
       try {
         packet = JSON.parse(message.toString('utf8'));
       } catch {
-        console.warn(
+        logger.warn(
           `[Discovery] Ignored invalid JSON from ${remote.address}.`
         );
         return;
@@ -113,7 +112,7 @@ function performDiscovery() {
       );
 
       if (!macValue) {
-        console.log(
+        logger.debug(
           `[Discovery] Response from ${remote.address} has no recognized MAC field.`
         );
         return;
@@ -127,12 +126,12 @@ function performDiscovery() {
         success: true
       });
 
-      console.log(
+      logger.debug(
         `[Discovery] Found device ${remote.address} (${mac}).`
       );
     });
 
-    socket.bind(0, '0.0.0.0', () => {
+    socket.bind(0, config.discoveryBindAddress, () => {
       try {
         socket.setBroadcast(true);
       } catch (error) {
@@ -147,22 +146,26 @@ function performDiscovery() {
       socket.send(
         payload,
         config.wizPort,
-        DISCOVERY_ADDRESS,
+        config.discoveryAddress,
         (error) => {
           if (error) {
-            console.error(
+            logger.error(
               '[Discovery] Failed to send broadcast:',
               error.message
             );
+
             finish(error);
             return;
           }
 
-          console.log(
-            `[Discovery] Broadcast sent to ${DISCOVERY_ADDRESS}:${config.wizPort}.`
+          logger.info(
+            `[Discovery] Broadcast sent to ${config.discoveryAddress}:${config.wizPort}.`
           );
 
-          timer = setTimeout(() => finish(), config.discoveryTimeoutMs);
+          timer = setTimeout(
+            () => finish(),
+            config.discoveryTimeoutMs
+          );
         }
       );
     });
