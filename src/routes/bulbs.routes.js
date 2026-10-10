@@ -4,6 +4,7 @@ const express = require('express');
 const net = require('node:net');
 const wiz = require('../services/wiz.service');
 const response = require('../utils/response');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -45,7 +46,7 @@ function getErrorCode(status) {
 function handleError(res, error) {
   const status = getErrorStatus(error);
 
-  console.error('[API] Request failed:', error.message);
+  logger.error('[API] Device request failed:', error);
 
   return response.failure(
     res,
