@@ -20,14 +20,6 @@ const COLORS = Object.freeze({
   RESET: '\x1b[0m'
 });
 
-const COMPONENTS = Object.freeze([
-  'DISCOVERY',
-  'API',
-  'WIZ',
-  'SERVER',
-  'LOGGER'
-]);
-
 const logDirectory = path.resolve(
   process.cwd(),
   config.logDirectory
@@ -66,7 +58,7 @@ function getLogFileName() {
 }
 
 function getComponent(message) {
-  const match = message.match(/^\[([A-Z][A-Z0-9_-]*)\]\s*/);
+  const match = message.match(/^\[([A-Za-z][A-Za-z0-9_-]*)\]\s*/);
 
   if (!match) {
     return {
@@ -75,25 +67,18 @@ function getComponent(message) {
     };
   }
 
-  const candidate = match[1];
-  const component = COMPONENTS.includes(candidate)
-    ? candidate
-    : candidate;
-
   return {
-    component,
+    component: match[1].toUpperCase(),
     message: message.slice(match[0].length)
   };
 }
 
 function formatLine(level, timestamp, message) {
   const { component, message: cleanMessage } = getComponent(message);
-  const paddedLevel = level.padEnd(5);
-  const paddedComponent = component.padEnd(9);
 
   return (
-    `${timestamp} [${paddedLevel}] ` +
-    `[${paddedComponent}] ${cleanMessage}`
+    `${timestamp} [${level.padEnd(5)}] ` +
+    `[${component}] ${cleanMessage}`
   );
 }
 
@@ -150,6 +135,24 @@ function writeToFile(line) {
   }
 }
 
+function colorizeLevel(line, level) {
+  const color = COLORS[level];
+  const match = line.match(/^(\S+ )(\[)(DEBUG|INFO |WARN |ERROR)(\])/);
+
+  if (!match) {
+    return line;
+  }
+
+  const start = match[1];
+  const levelText = match[3].trim();
+  const paddedLevel = levelText.padEnd(5);
+
+  return (
+    `${start}${color}[${paddedLevel}]${COLORS.RESET}` +
+    line.slice(match[0].length)
+  );
+}
+
 function log(level, ...args) {
   const normalizedLevel = String(level).toUpperCase();
 
@@ -166,34 +169,13 @@ function log(level, ...args) {
   const plainLine = formatLine(normalizedLevel, timestamp, message);
 
   if (config.logConsoleEnabled) {
-    const color = COLORS[normalizedLevel];
-    const reset = COLORS.RESET;
-    const lines = plainLine.split('\n');
-
-    const consoleLines = lines.map((line, index) => {
-      if (index === 0) {
-        const levelStart = line.indexOf('[');
-        const levelEnd = line.indexOf(']', levelStart);
-
-        if (levelStart !== -1 && levelEnd !== -1) {
-          return (
-            line.slice(0, levelStart) +
-            color +
-            line.slice(levelStart, levelEnd + 1) +
-            reset +
-            line.slice(levelEnd + 1)
-          );
-        }
-      }
-
-      return `         ${line}`;
-    });
+    const consoleLine = colorizeLevel(plainLine, normalizedLevel);
 
     const output = normalizedLevel === 'ERROR'
       ? process.stderr
       : process.stdout;
 
-    output.write(`${consoleLines.join('\n')}\n`);
+    output.write(`${consoleLine}\n`);
   }
 
   writeToFile(plainLine);
