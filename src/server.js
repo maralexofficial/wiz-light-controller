@@ -7,6 +7,15 @@ const logger = require('./utils/logger');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
+const {
+  initializeDatabase,
+  closeDatabase
+} = require('./database');
+
+const {
+  runMigrations
+} = require('./database/migrations');
+
 const HOME_DATA_FILE = path.join(
   __dirname,
   '..',
@@ -80,12 +89,7 @@ async function shutdown(signal) {
   forceExitTimer.unref();
 
   if (!server) {
-    try {
-      await wizService.close();
-    } catch (error) {
-      logger.error('[SERVER] UDP shutdown error:', error.message);
-    }
-
+    await closeResources();
     process.exit(0);
     return;
   }
@@ -96,12 +100,12 @@ async function shutdown(signal) {
     }
 
     try {
-      await wizService.close();
+      await closeResources();
       logger.info('[SERVER] Shutdown completed.');
       process.exit(error ? 1 : 0);
     } catch (closeError) {
       logger.error(
-        '[SERVER] UDP shutdown error:',
+        '[SERVER] Resource shutdown error:',
         closeError.message
       );
       process.exit(1);
@@ -109,17 +113,41 @@ async function shutdown(signal) {
   });
 }
 
+async function closeResources() {
+  try {
+    await wizService.close();
+  } finally {
+    closeDatabase();
+  }
+}
+
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 async function main() {
   await checkHomeData();
+
+  const db = initializeDatabase();
+  runMigrations(db);
+
+  logger.info('[SERVER] Database migrations completed.');
+
   startServer();
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   logger.error(
     `[SERVER] Initialization failed: ${error.message}`
   );
+
+  try {
+    await closeResources();
+  } catch (closeError) {
+    logger.error(
+      '[SERVER] Resource cleanup failed:',
+      closeError.message
+    );
+  }
+
   process.exitCode = 1;
 });
