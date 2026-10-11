@@ -1,3 +1,4 @@
+
 'use strict';
 
 const app = require('./app');
@@ -15,6 +16,10 @@ const {
 const {
   runMigrations
 } = require('./database/migrations');
+
+const {
+  bootstrapLegacyToken
+} = require('./services/token-bootstrap.service');
 
 const HOME_DATA_FILE = path.join(
   __dirname,
@@ -131,6 +136,12 @@ async function main() {
   runMigrations(db);
 
   logger.info('[SERVER] Database migrations completed.');
+
+  const importedToken = bootstrapLegacyToken();
+
+  logger.info(
+    `[SERVER] Token bootstrap completed | tokenId=${importedToken.id} | created=${importedToken.created}`
+  );
 
   startServer();
 }
