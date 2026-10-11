@@ -130,14 +130,11 @@ function getGroupById(db, id) {
 function listGroups() {
   const db = getDatabase();
 
-  const groups = db.prepare(`
+  return db.prepare(`
     SELECT id
     FROM groups
     ORDER BY name COLLATE NOCASE, id
-  `).all();
-
-  return groups
-    .map((group) => getGroupById(db, group.id));
+  `).all().map((row) => getGroupById(db, row.id));
 }
 
 function getGroup(id) {
@@ -159,6 +156,44 @@ function getGroup(id) {
   }
 
   return group;
+}
+
+function validateKnownDevices(members, expectedType, knownDevices) {
+  if (!Array.isArray(knownDevices)) {
+    throw new GroupError(
+      'DEVICE_DATA_UNAVAILABLE',
+      'Device metadata is unavailable.',
+      503
+    );
+  }
+
+  const devicesByMac = new Map();
+
+  for (const device of knownDevices) {
+    try {
+      devicesByMac.set(normalizeMac(device.mac), device);
+    } catch {
+      // Ignore invalid device metadata.
+    }
+  }
+
+  for (const mac of members) {
+    const device = devicesByMac.get(mac);
+
+    if (!device) {
+      throw new GroupError(
+        'UNKNOWN_DEVICE',
+        `Device ${mac} is not present in the known device list.`
+      );
+    }
+
+    if (device.deviceType !== expectedType) {
+      throw new GroupError(
+        'INCOMPATIBLE_DEVICE_TYPE',
+        `Device ${mac} is not compatible with group type ${expectedType}.`
+      );
+    }
+  }
 }
 
 function createGroup(input, knownDevices) {
@@ -202,11 +237,7 @@ function createGroup(input, knownDevices) {
     try {
       db.exec('ROLLBACK;');
     } catch {
-      // Preserve the original database error.
-    }
-
-    if (error instanceof GroupError) {
-      throw error;
+      // Preserve the original error.
     }
 
     if (String(error.message).includes('UNIQUE constraint failed: groups.name')) {
@@ -230,6 +261,7 @@ function updateGroup(id, input, knownDevices) {
   }
 
   const existing = getGroup(id);
+
   const name = input.name === undefined
     ? existing.name
     : normalizeName(input.name);
@@ -238,11 +270,7 @@ function updateGroup(id, input, knownDevices) {
     ? existing.members
     : normalizeMembers(input.members);
 
-  validateKnownDevices(
-    members,
-    existing.deviceType,
-    knownDevices
-  );
+  validateKnownDevices(members, existing.deviceType, knownDevices);
 
   const db = getDatabase();
 
@@ -256,18 +284,20 @@ function updateGroup(id, input, knownDevices) {
       WHERE id = ?
     `).run(name, id);
 
-    db.prepare(`
-      DELETE FROM group_members
-      WHERE group_id = ?
-    `).run(id);
+    if (input.members !== undefined) {
+      db.prepare(`
+        DELETE FROM group_members
+        WHERE group_id = ?
+      `).run(id);
 
-    const insertMember = db.prepare(`
-      INSERT INTO group_members (group_id, device_mac)
-      VALUES (?, ?)
-    `);
+      const insertMember = db.prepare(`
+        INSERT INTO group_members (group_id, device_mac)
+        VALUES (?, ?)
+      `);
 
-    for (const mac of members) {
-      insertMember.run(id, mac);
+      for (const mac of members) {
+        insertMember.run(id, mac);
+      }
     }
 
     db.exec('COMMIT;');
@@ -277,7 +307,7 @@ function updateGroup(id, input, knownDevices) {
     try {
       db.exec('ROLLBACK;');
     } catch {
-      // Preserve the original database error.
+      // Preserve the original error.
     }
 
     if (String(error.message).includes('UNIQUE constraint failed: groups.name')) {
@@ -301,47 +331,6 @@ function deleteGroup(id) {
   `).run(id);
 
   return { id, deleted: true };
-}
-
-function validateKnownDevices(members, expectedType, knownDevices) {
-  if (!Array.isArray(knownDevices)) {
-    throw new GroupError(
-      'DEVICE_DATA_UNAVAILABLE',
-      'Device metadata is unavailable.',
-      503
-    );
-  }
-
-  const devicesByMac = new Map();
-
-  for (const device of knownDevices) {
-    try {
-      devicesByMac.set(
-        normalizeMac(device.mac),
-        device
-      );
-    } catch {
-      // Ignore malformed metadata entries.
-    }
-  }
-
-  for (const mac of members) {
-    const device = devicesByMac.get(mac);
-
-    if (!device) {
-      throw new GroupError(
-        'UNKNOWN_DEVICE',
-        `Device ${mac} is not present in the known device list.`
-      );
-    }
-
-    if (device.deviceType !== expectedType) {
-      throw new GroupError(
-        'INCOMPATIBLE_DEVICE_TYPE',
-        `Device ${mac} is not compatible with group type ${expectedType}.`
-      );
-    }
-  }
 }
 
 module.exports = {
