@@ -15,6 +15,48 @@ const migrations = [
         );
       `);
     }
+  },
+  {
+    version: 2,
+    description: 'Create groups and group members',
+    up(db) {
+      db.exec(`
+        CREATE TABLE groups (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL COLLATE NOCASE,
+          device_type TEXT NOT NULL
+            CHECK (device_type IN ('light', 'plug')),
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          CHECK (length(trim(name)) BETWEEN 1 AND 80)
+        );
+
+        CREATE TABLE group_members (
+          group_id TEXT NOT NULL,
+          device_mac TEXT NOT NULL COLLATE NOCASE,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+
+          PRIMARY KEY (group_id, device_mac),
+
+          FOREIGN KEY (group_id)
+            REFERENCES groups(id)
+            ON DELETE CASCADE,
+
+          CHECK (
+            length(replace(replace(device_mac, ':', ''), '-', '')) = 12
+          )
+        );
+
+        CREATE INDEX idx_group_members_device_mac
+          ON group_members(device_mac);
+      `);
+    }
   }
 ];
 
