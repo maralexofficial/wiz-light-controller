@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const migrations = [
   {
     version: 1,
@@ -74,6 +77,184 @@ const migrations = [
 
         INSERT INTO group_sync_state (id, revision)
         VALUES (1, 0);
+      `);
+    }
+  },
+  {
+    version: 4,
+    description: 'Add rooms and assign existing groups to rooms',
+    up(db) {
+      const homePath = path.join(
+        process.cwd(),
+        'data',
+        'wiz-home.json'
+      );
+
+      if (!fs.existsSync(homePath)) {
+        throw new Error(
+          `Home metadata file not found: ${homePath}`
+        );
+      }
+
+      const home = JSON.parse(
+        fs.readFileSync(homePath, 'utf8')
+      );
+
+      if (!Array.isArray(home.rooms)) {
+        throw new Error(
+          'Home metadata does not contain a valid rooms array.'
+        );
+      }
+
+      const rooms = home.rooms.map((room) => {
+        if (
+          !Number.isSafeInteger(room.room_id) ||
+          typeof room.name !== 'string' ||
+          !room.name.trim()
+        ) {
+          throw new Error(
+            'Home metadata contains an invalid room.'
+          );
+        }
+
+        return {
+          id: room.room_id,
+          name: room.name.trim(),
+          type: typeof room.type === 'string'
+            ? room.type
+            : 'UNKNOWN'
+        };
+      });
+
+      const roomIds = new Set(rooms.map((room) => room.id));
+
+      if (roomIds.size !== rooms.length) {
+        throw new Error(
+          'Home metadata contains duplicate room IDs.'
+        );
+      }
+
+      db.exec(`
+        CREATE TABLE rooms (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'UNKNOWN',
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          CHECK (length(trim(name)) BETWEEN 1 AND 80)
+        );
+      `);
+
+      const insertRoom = db.prepare(`
+        INSERT INTO rooms (id, name, type)
+        VALUES (?, ?, ?)
+      `);
+
+      for (const room of rooms) {
+        insertRoom.run(room.id, room.name, room.type);
+      }
+
+      db.exec(`
+        ALTER TABLE groups
+        ADD COLUMN room_id INTEGER
+        REFERENCES rooms(id)
+        ON DELETE RESTRICT;
+      `);
+
+      const knownDeviceRooms = new Map();
+
+      if (!Array.isArray(home.devices)) {
+        throw new Error(
+          'Home metadata does not contain a valid devices array.'
+        );
+      }
+
+      for (const device of home.devices) {
+        if (
+          typeof device.mac_address !== 'string' ||
+          !Number.isSafeInteger(device.room_id)
+        ) {
+          continue;
+        }
+
+        const mac = device.mac_address
+          .trim()
+          .replace(/[:-]/g, '')
+          .toLowerCase();
+
+        if (/^[0-9a-f]{12}$/.test(mac)) {
+          knownDeviceRooms.set(mac, device.room_id);
+        }
+      }
+
+      const groups = db.prepare(`
+        SELECT id
+        FROM groups
+      `).all();
+
+      const getMembers = db.prepare(`
+        SELECT device_mac AS mac
+        FROM group_members
+        WHERE group_id = ?
+      `);
+
+      const assignRoom = db.prepare(`
+        UPDATE groups
+        SET room_id = ?,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = ?
+      `);
+
+      for (const group of groups) {
+        const members = getMembers.all(group.id);
+
+        if (members.length === 0) {
+          throw new Error(
+            `Existing group ${group.id} has no members; room assignment requires manual review.`
+          );
+        }
+
+        const memberRoomIds = members.map((member) => {
+          const mac = member.mac
+            .trim()
+            .replace(/[:-]/g, '')
+            .toLowerCase();
+
+          return knownDeviceRooms.get(mac);
+        });
+
+        if (memberRoomIds.some((roomId) => roomId === undefined)) {
+          throw new Error(
+            `Existing group ${group.id} contains a device without a known room.`
+          );
+        }
+
+        const uniqueRoomIds = new Set(memberRoomIds);
+
+        if (uniqueRoomIds.size !== 1) {
+          throw new Error(
+            `Existing group ${group.id} contains devices from multiple rooms.`
+          );
+        }
+
+        const roomId = memberRoomIds[0];
+
+        if (!roomIds.has(roomId)) {
+          throw new Error(
+            `Existing group ${group.id} references unknown room ${roomId}.`
+          );
+        }
+
+        assignRoom.run(roomId, group.id);
+      }
+
+      db.exec(`
+        CREATE INDEX idx_groups_room_id
+          ON groups(room_id);
       `);
     }
   }
