@@ -7,6 +7,7 @@ const logger = require('./utils/logger');
 
 const bulbsRouter = require('./routes/bulbs.routes');
 const systemRouter = require('./routes/system.routes');
+const groupsRouter = require('./routes/groups.routes');
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use('/api', authMiddleware);
 
 app.use('/api', bulbsRouter);
 app.use('/api', systemRouter);
+app.use('/api', groupsRouter);
 
 app.use((req, res) => {
   return response.failure(
