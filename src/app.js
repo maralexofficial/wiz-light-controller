@@ -8,6 +8,7 @@ const logger = require('./utils/logger');
 const bulbsRouter = require('./routes/bulbs.routes');
 const systemRouter = require('./routes/system.routes');
 const groupsRouter = require('./routes/groups.routes');
+const syncRouter = require('./routes/sync.routes');
 
 const app = express();
 
@@ -33,10 +34,10 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api', authMiddleware);
-
 app.use('/api', bulbsRouter);
 app.use('/api', systemRouter);
 app.use('/api', groupsRouter);
+app.use('/api', syncRouter);
 
 app.use((req, res) => {
   return response.failure(
@@ -52,53 +53,25 @@ app.use((error, req, res, next) => {
     return next(error);
   }
 
-  if (
-    error instanceof SyntaxError &&
-    error.status === 400 &&
-    Object.prototype.hasOwnProperty.call(error, 'body')
-  ) {
-    logger.warn(
-      `[API] Invalid JSON request | method=${req.method} | path=${req.path}`
-    );
-
+  if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
     return response.failure(
       res,
       400,
       'INVALID_JSON',
-      'Invalid JSON request body.'
+      'Request body contains invalid JSON.'
     );
   }
 
   if (error.type === 'entity.too.large') {
-    logger.warn(
-      `[API] Request body too large | method=${req.method} | path=${req.path}`
-    );
-
     return response.failure(
       res,
       413,
       'REQUEST_TOO_LARGE',
-      'Request body is too large.'
+      'Request body exceeds the allowed size.'
     );
   }
 
-  if (error.type === 'entity.parse.failed') {
-    logger.warn(
-      `[API] Invalid JSON request | method=${req.method} | path=${req.path}`
-    );
-
-    return response.failure(
-      res,
-      400,
-      'INVALID_JSON',
-      'Invalid JSON request body.'
-    );
-  }
-
-  logger.error(
-    `[API] Internal server error | method=${req.method} | path=${req.path}`,
-    error
-  );
+  logger.error('[API] Unhandled request error:', error);
 
   return response.failure(
     res,
