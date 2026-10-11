@@ -281,6 +281,28 @@ const migrations = [
       }
 
       db.exec(`
+        CREATE TABLE group_members_backup (
+          group_id TEXT NOT NULL,
+          device_mac TEXT NOT NULL COLLATE NOCASE,
+          created_at TEXT NOT NULL
+        );
+
+        INSERT INTO group_members_backup (
+          group_id,
+          device_mac,
+          created_at
+        )
+        SELECT
+          group_id,
+          device_mac,
+          created_at
+        FROM group_members;
+
+        DROP INDEX idx_group_members_device_mac;
+        DROP TABLE group_members;
+
+        DROP INDEX idx_groups_room_id;
+
         CREATE TABLE groups_new (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL COLLATE NOCASE,
@@ -311,15 +333,84 @@ const migrations = [
           room_id
         FROM groups;
 
-        DROP INDEX idx_groups_room_id;
-
         DROP TABLE groups;
 
         ALTER TABLE groups_new RENAME TO groups;
 
         CREATE INDEX idx_groups_room_id
           ON groups(room_id);
+
+        CREATE TABLE group_members (
+          group_id TEXT NOT NULL,
+          device_mac TEXT NOT NULL COLLATE NOCASE,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+
+          PRIMARY KEY (group_id, device_mac),
+
+          FOREIGN KEY (group_id)
+            REFERENCES groups(id)
+            ON DELETE CASCADE,
+
+          CHECK (
+            length(replace(replace(device_mac, ':', ''), '-', '')) = 12
+          )
+        );
+
+        INSERT INTO group_members (
+          group_id,
+          device_mac,
+          created_at
+        )
+        SELECT
+          group_id,
+          device_mac,
+          created_at
+        FROM group_members_backup;
+
+        DROP TABLE group_members_backup;
+
+        CREATE INDEX idx_group_members_device_mac
+          ON group_members(device_mac);
       `);
+
+      const memberCount = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM group_members
+      `).get().count;
+
+      const backupCount = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = 'group_members_backup'
+      `).get().count;
+
+      if (backupCount !== 0) {
+        throw new Error(
+          'Temporary group member backup table was not removed.'
+        );
+      }
+
+      if (memberCount < 0) {
+        throw new Error(
+          'Invalid group member count after rebuilding tables.'
+        );
+      }
+
+      const orphanMembers = db.prepare(`
+        SELECT gm.group_id, gm.device_mac
+        FROM group_members AS gm
+        LEFT JOIN groups AS g ON g.id = gm.group_id
+        WHERE g.id IS NULL
+      `).all();
+
+      if (orphanMembers.length > 0) {
+        throw new Error(
+          'Group member restoration produced orphaned records.'
+        );
+      }
     }
   }
 ];
