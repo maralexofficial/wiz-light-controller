@@ -10,24 +10,24 @@ const { runMigrations } = require('../src/database/migrations');
 const tokenService = require('../src/services/token.service');
 
 const HELP = `
-WiZ Light Controller – Tokenverwaltung
+WiZ Light Controller - Token Management
 
-Befehle:
+Commands:
 
   npm run token:create -- --name "Android App" --permissions devices.read,devices.control
   npm run token:list
   npm run token:permissions -- --id 2 --permissions devices.read,groups.read
   npm run token:revoke -- --id 2
 
-Optionen:
+Options:
 
-  --name          Tokenname (1–80 Zeichen)
-  --permissions   Kommagetrennte Liste von Berechtigungen
-  --id            Token-ID
-  --expires       Ablaufdatum, z. B. 2027-01-01T00:00:00Z
-  --help          Hilfe anzeigen
+  --name          Token name (1-80 characters)
+  --permissions   Comma-separated permission list
+  --id            Token ID
+  --expires       Expiration date, e.g. 2027-01-01T00:00:00Z
+  --help          Show help
 
-Verfügbare Berechtigungen:
+Available permissions:
 
   ${tokenService.AVAILABLE_PERMISSIONS.join('\n  ')}
 `;
@@ -44,23 +44,23 @@ function parseArgs(args) {
     }
 
     if (!arg.startsWith('--')) {
-      throw new Error(`Unbekanntes Argument: ${arg}`);
+      throw new Error(`Unknown argument: ${arg}`);
     }
 
     const key = arg.slice(2);
 
     if (!['name', 'permissions', 'id', 'expires'].includes(key)) {
-      throw new Error(`Unbekannte Option: ${arg}`);
+      throw new Error(`Unknown option: ${arg}`);
     }
 
     if (options[key] !== undefined) {
-      throw new Error(`Option mehrfach angegeben: ${arg}`);
+      throw new Error(`Option specified more than once: ${arg}`);
     }
 
     const value = args[index + 1];
 
     if (value === undefined || value.startsWith('--')) {
-      throw new Error(`Für ${arg} fehlt ein Wert.`);
+      throw new Error(`Missing value for ${arg}.`);
     }
 
     options[key] = value;
@@ -72,13 +72,13 @@ function parseArgs(args) {
 
 function parseId(value) {
   if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
-    throw new Error('--id muss eine positive Ganzzahl sein.');
+    throw new Error('--id must be a positive integer.');
   }
 
   const id = Number(value);
 
   if (!Number.isSafeInteger(id)) {
-    throw new Error('--id liegt außerhalb des gültigen Zahlenbereichs.');
+    throw new Error('--id is outside the valid integer range.');
   }
 
   return id;
@@ -86,7 +86,7 @@ function parseId(value) {
 
 function parsePermissions(value) {
   if (typeof value !== 'string' || !value.trim()) {
-    throw new Error('--permissions darf nicht leer sein.');
+    throw new Error('--permissions must not be empty.');
   }
 
   const permissions = value
@@ -94,7 +94,7 @@ function parsePermissions(value) {
     .map((permission) => permission.trim());
 
   if (permissions.some((permission) => !permission)) {
-    throw new Error('Die Berechtigungsliste enthält einen leeren Eintrag.');
+    throw new Error('The permission list contains an empty entry.');
   }
 
   return tokenService.normalizePermissions(permissions);
@@ -108,15 +108,15 @@ function ensureManagerSafeguard(db, tokenId, newPermissions, action) {
   `).get(tokenId);
 
   if (!target) {
-    throw new Error(`Token mit ID ${tokenId} wurde nicht gefunden.`);
+    throw new Error(`Token ${tokenId} was not found.`);
   }
 
   if (target.revoked_at) {
-    throw new Error(`Token mit ID ${tokenId} ist bereits widerrufen.`);
+    throw new Error(`Token ${tokenId} has already been revoked.`);
   }
 
   if (target.expires_at && Date.parse(target.expires_at) <= Date.now()) {
-    throw new Error(`Token mit ID ${tokenId} ist bereits abgelaufen.`);
+    throw new Error(`Token ${tokenId} has already expired.`);
   }
 
   let currentPermissions;
@@ -124,11 +124,11 @@ function ensureManagerSafeguard(db, tokenId, newPermissions, action) {
   try {
     currentPermissions = JSON.parse(target.permissions);
   } catch {
-    throw new Error('Die gespeicherten Berechtigungen des Tokens sind ungültig.');
+    throw new Error('The stored token permissions are invalid.');
   }
 
   if (!Array.isArray(currentPermissions)) {
-    throw new Error('Die gespeicherten Berechtigungen des Tokens sind ungültig.');
+    throw new Error('The stored token permissions are invalid.');
   }
 
   const removesManagerPermission =
@@ -166,14 +166,14 @@ function ensureManagerSafeguard(db, tokenId, newPermissions, action) {
 
   if (otherActiveManagers.length === 0) {
     throw new Error(
-      'Abbruch: Dies würde die letzte aktive tokens.manage-Berechtigung entfernen. Erstelle zuerst einen weiteren Token mit tokens.manage.'
+      'Operation denied: this would remove the last active tokens.manage permission. Create another token with tokens.manage first.'
     );
   }
 }
 
 function printTokenList(tokens) {
   if (tokens.length === 0) {
-    console.log('Keine Tokens vorhanden.');
+    console.log('No tokens found.');
     return;
   }
 
@@ -182,20 +182,20 @@ function printTokenList(tokens) {
       Date.parse(token.expiresAt) <= Date.now();
 
     const status = token.revokedAt
-      ? 'Widerrufen'
+      ? 'Revoked'
       : expired
-        ? 'Abgelaufen'
-        : 'Aktiv';
+        ? 'Expired'
+        : 'Active';
 
     console.log('');
     console.log(`ID:             ${token.id}`);
     console.log(`Name:           ${token.name}`);
     console.log(`Status:         ${status}`);
-    console.log(`Berechtigungen:  ${token.permissions.join(', ') || '(keine)'}`);
-    console.log(`Erstellt:       ${token.createdAt}`);
-    console.log(`Aktualisiert:   ${token.updatedAt}`);
-    console.log(`Ablaufdatum:    ${token.expiresAt || 'Keines'}`);
-    console.log(`Widerrufen:     ${token.revokedAt || 'Nein'}`);
+    console.log(`Permissions:    ${token.permissions.join(', ') || '(none)'}`);
+    console.log(`Created:        ${token.createdAt}`);
+    console.log(`Updated:        ${token.updatedAt}`);
+    console.log(`Expires:        ${token.expiresAt || 'Never'}`);
+    console.log(`Revoked:        ${token.revokedAt || 'No'}`);
   }
 
   console.log('');
@@ -203,11 +203,11 @@ function printTokenList(tokens) {
 
 function runCreate(options) {
   if (!options.name) {
-    throw new Error('--name ist erforderlich.');
+    throw new Error('--name is required.');
   }
 
   if (!options.permissions) {
-    throw new Error('--permissions ist erforderlich.');
+    throw new Error('--permissions is required.');
   }
 
   const permissions = parsePermissions(options.permissions);
@@ -218,7 +218,7 @@ function runCreate(options) {
     const timestamp = Date.parse(options.expires);
 
     if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
-      throw new Error('--expires muss ein gültiges Datum in der Zukunft sein.');
+      throw new Error('--expires must be a valid date in the future.');
     }
 
     expiresAt = new Date(timestamp).toISOString();
@@ -231,14 +231,14 @@ function runCreate(options) {
   );
 
   console.log('');
-  console.log('Token erfolgreich erstellt.');
+  console.log('Token created successfully.');
   console.log(`ID:             ${created.id}`);
   console.log(`Name:           ${created.name}`);
-  console.log(`Berechtigungen: ${created.permissions.join(', ')}`);
-  console.log(`Ablaufdatum:    ${created.expiresAt || 'Keines'}`);
+  console.log(`Permissions:    ${created.permissions.join(', ')}`);
+  console.log(`Expires:        ${created.expiresAt || 'Never'}`);
   console.log('');
-  console.log('WICHTIG: Der vollständige Token wird nur jetzt angezeigt.');
-  console.log('Speichere ihn sicher; die Datenbank enthält nur den Hash.');
+  console.log('IMPORTANT: The full token is displayed only once.');
+  console.log('Store it securely. Only its hash is stored in the database.');
   console.log('');
   console.log(created.token);
   console.log('');
@@ -246,9 +246,7 @@ function runCreate(options) {
 
 function runPermissions(options) {
   if (!options.id || !options.permissions) {
-    throw new Error(
-      'Für permissions sind --id und --permissions erforderlich.'
-    );
+    throw new Error('Both --id and --permissions are required.');
   }
 
   const id = parseId(options.id);
@@ -258,13 +256,13 @@ function runPermissions(options) {
   ensureManagerSafeguard(db, id, permissions, 'permissions');
   tokenService.updateTokenPermissions(id, permissions);
 
-  console.log(`Berechtigungen von Token ${id} wurden aktualisiert.`);
-  console.log(permissions.join(', ') || '(keine)');
+  console.log(`Permissions updated for token ${id}.`);
+  console.log(permissions.join(', ') || '(none)');
 }
 
 function runRevoke(options) {
   if (!options.id) {
-    throw new Error('Für revoke ist --id erforderlich.');
+    throw new Error('--id is required.');
   }
 
   const id = parseId(options.id);
@@ -273,7 +271,7 @@ function runRevoke(options) {
   ensureManagerSafeguard(db, id, [], 'revoke');
   tokenService.revokeToken(id);
 
-  console.log(`Token ${id} wurde widerrufen.`);
+  console.log(`Token ${id} has been revoked.`);
 }
 
 function main() {
@@ -292,7 +290,7 @@ function main() {
   }
 
   if (!['create', 'list', 'permissions', 'revoke'].includes(command)) {
-    throw new Error(`Unbekannter Befehl: ${command}`);
+    throw new Error(`Unknown command: ${command}`);
   }
 
   let databaseInitialized = false;
@@ -301,7 +299,8 @@ function main() {
     initializeDatabase();
     databaseInitialized = true;
 
-    runMigrations();
+    const db = getDatabase();
+    runMigrations(db);
 
     switch (command) {
       case 'create':
@@ -330,6 +329,6 @@ function main() {
 try {
   main();
 } catch (error) {
-  console.error(`Fehler: ${error.message}`);
+  console.error(`Error: ${error.message}`);
   process.exitCode = 1;
 }
