@@ -1,3 +1,4 @@
+
 'use strict';
 
 const fs = require('node:fs');
@@ -411,6 +412,42 @@ const migrations = [
           'Group member restoration produced orphaned records.'
         );
       }
+    }
+  },
+  {
+    version: 6,
+    description: 'Create API token storage',
+    up(db) {
+      db.exec(`
+        CREATE TABLE api_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+          name TEXT NOT NULL COLLATE NOCASE
+            CHECK (length(trim(name)) BETWEEN 1 AND 80),
+
+          token_hash TEXT NOT NULL UNIQUE
+            CHECK (length(token_hash) = 64),
+
+          permissions TEXT NOT NULL
+            CHECK (json_valid(permissions))
+            CHECK (json_type(permissions) = 'array'),
+
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+
+          expires_at TEXT,
+
+          revoked_at TEXT
+        );
+
+        CREATE INDEX idx_api_tokens_active
+          ON api_tokens(revoked_at, expires_at);
+      `);
     }
   }
 ];
