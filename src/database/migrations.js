@@ -257,6 +257,70 @@ const migrations = [
           ON groups(room_id);
       `);
     }
+  },
+  {
+    version: 5,
+    description: 'Require a valid room for every group',
+    up(db) {
+      const invalidGroups = db.prepare(`
+        SELECT g.id, g.name, g.room_id
+        FROM groups AS g
+        LEFT JOIN rooms AS r ON r.id = g.room_id
+        WHERE g.room_id IS NULL
+           OR r.id IS NULL
+      `).all();
+
+      if (invalidGroups.length > 0) {
+        const ids = invalidGroups
+          .map((group) => group.id)
+          .join(', ');
+
+        throw new Error(
+          `Cannot require group rooms; groups have missing or invalid room references: ${ids}`
+        );
+      }
+
+      db.exec(`
+        CREATE TABLE groups_new (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL COLLATE NOCASE,
+          device_type TEXT NOT NULL
+            CHECK (device_type IN ('light', 'plug')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          room_id INTEGER NOT NULL
+            REFERENCES rooms(id)
+            ON DELETE RESTRICT,
+          CHECK (length(trim(name)) BETWEEN 1 AND 80)
+        );
+
+        INSERT INTO groups_new (
+          id,
+          name,
+          device_type,
+          created_at,
+          updated_at,
+          room_id
+        )
+        SELECT
+          id,
+          name,
+          device_type,
+          created_at,
+          updated_at,
+          room_id
+        FROM groups;
+
+        DROP INDEX idx_groups_room_id;
+
+        DROP TABLE groups;
+
+        ALTER TABLE groups_new RENAME TO groups;
+
+        CREATE INDEX idx_groups_room_id
+          ON groups(room_id);
+      `);
+    }
   }
 ];
 
