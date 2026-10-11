@@ -71,6 +71,24 @@ function normalizeDeviceType(deviceType) {
   return deviceType;
 }
 
+function normalizeRoomId(roomId) {
+  const normalized = typeof roomId === 'string' && roomId.trim() !== ''
+    ? Number(roomId)
+    : roomId;
+
+  if (
+    !Number.isSafeInteger(normalized) ||
+    normalized <= 0
+  ) {
+    throw new GroupError(
+      'INVALID_ROOM_ID',
+      'A valid roomId is required.'
+    );
+  }
+
+  return normalized;
+}
+
 function normalizeMembers(members) {
   if (!Array.isArray(members)) {
     throw new GroupError(
@@ -104,6 +122,7 @@ function getGroupById(db, id) {
       id,
       name,
       device_type AS deviceType,
+      room_id AS roomId,
       created_at AS createdAt,
       updated_at AS updatedAt
     FROM groups
@@ -137,6 +156,60 @@ function listGroups() {
   `).all().map((row) => getGroupById(db, row.id));
 }
 
+function listRooms() {
+  return getDatabase().prepare(`
+    SELECT
+      id,
+      name,
+      type,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM rooms
+    ORDER BY name COLLATE NOCASE, id
+  `).all();
+}
+
+function getRoom(roomId) {
+  const normalizedRoomId = normalizeRoomId(roomId);
+
+  const room = getDatabase().prepare(`
+    SELECT
+      id,
+      name,
+      type,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM rooms
+    WHERE id = ?
+  `).get(normalizedRoomId);
+
+  if (!room) {
+    throw new GroupError(
+      'ROOM_NOT_FOUND',
+      'Room not found.',
+      404
+    );
+  }
+
+  return room;
+}
+
+function getGroupsByRoom(roomId) {
+  const room = getRoom(roomId);
+
+  const groups = getDatabase().prepare(`
+    SELECT id
+    FROM groups
+    WHERE room_id = ?
+    ORDER BY name COLLATE NOCASE, id
+  `).all(room.id).map((row) => getGroupById(getDatabase(), row.id));
+
+  return {
+    room,
+    groups
+  };
+}
+
 function getGroup(id) {
   if (typeof id !== 'string' || !id.trim()) {
     throw new GroupError(
@@ -158,34 +231,12 @@ function getGroup(id) {
   return group;
 }
 
-function getSyncState() {
-  const db = getDatabase();
-
-  const state = db.prepare(`
-    SELECT
-      revision,
-      updated_at AS updatedAt
-    FROM group_sync_state
-    WHERE id = 1
-  `).get();
-
-  if (!state) {
-    throw new Error('Group synchronization state is missing.');
-  }
-
-  return state;
-}
-
-function incrementSyncRevision(db) {
-  db.prepare(`
-    UPDATE group_sync_state
-    SET revision = revision + 1,
-        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    WHERE id = 1
-  `).run();
-}
-
-function validateKnownDevices(members, expectedType, knownDevices) {
+function validateKnownDevices(
+  members,
+  expectedType,
+  roomId,
+  knownDevices
+) {
   if (!Array.isArray(knownDevices)) {
     throw new GroupError(
       'DEVICE_DATA_UNAVAILABLE',
@@ -220,7 +271,23 @@ function validateKnownDevices(members, expectedType, knownDevices) {
         `Device ${mac} is not compatible with group type ${expectedType}.`
       );
     }
+
+    if (Number(device.roomId) !== roomId) {
+      throw new GroupError(
+        'DEVICE_ROOM_MISMATCH',
+        `Device ${mac} does not belong to room ${roomId}.`
+      );
+    }
   }
+}
+
+function incrementSyncRevision(db) {
+  db.prepare(`
+    UPDATE group_sync_state
+    SET revision = revision + 1,
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE id = 1
+  `).run();
 }
 
 function createGroup(input, knownDevices) {
@@ -233,9 +300,11 @@ function createGroup(input, knownDevices) {
 
   const name = normalizeName(input.name);
   const deviceType = normalizeDeviceType(input.deviceType);
+  const roomId = normalizeRoomId(input.roomId);
   const members = normalizeMembers(input.members);
 
-  validateKnownDevices(members, deviceType, knownDevices);
+  getRoom(roomId);
+  validateKnownDevices(members, deviceType, roomId, knownDevices);
 
   const db = getDatabase();
   const id = randomUUID();
@@ -244,9 +313,9 @@ function createGroup(input, knownDevices) {
     db.exec('BEGIN IMMEDIATE;');
 
     db.prepare(`
-      INSERT INTO groups (id, name, device_type)
-      VALUES (?, ?, ?)
-    `).run(id, name, deviceType);
+      INSERT INTO groups (id, name, device_type, room_id)
+      VALUES (?, ?, ?, ?)
+    `).run(id, name, deviceType, roomId);
 
     const insertMember = db.prepare(`
       INSERT INTO group_members (group_id, device_mac)
@@ -258,7 +327,6 @@ function createGroup(input, knownDevices) {
     }
 
     incrementSyncRevision(db);
-
     db.exec('COMMIT;');
 
     return getGroupById(db, id);
@@ -295,11 +363,18 @@ function updateGroup(id, input, knownDevices) {
     ? existing.name
     : normalizeName(input.name);
 
+  const deviceType = existing.deviceType;
+
+  const roomId = input.roomId === undefined
+    ? existing.roomId
+    : normalizeRoomId(input.roomId);
+
   const members = input.members === undefined
     ? existing.members
     : normalizeMembers(input.members);
 
-  validateKnownDevices(members, existing.deviceType, knownDevices);
+  getRoom(roomId);
+  validateKnownDevices(members, deviceType, roomId, knownDevices);
 
   const db = getDatabase();
 
@@ -309,9 +384,10 @@ function updateGroup(id, input, knownDevices) {
     db.prepare(`
       UPDATE groups
       SET name = ?,
+          room_id = ?,
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
       WHERE id = ?
-    `).run(name, id);
+    `).run(name, roomId, id);
 
     if (input.members !== undefined) {
       db.prepare(`
@@ -330,7 +406,6 @@ function updateGroup(id, input, knownDevices) {
     }
 
     incrementSyncRevision(db);
-
     db.exec('COMMIT;');
 
     return getGroupById(db, id);
@@ -367,7 +442,6 @@ function deleteGroup(id) {
     `).run(id);
 
     incrementSyncRevision(db);
-
     db.exec('COMMIT;');
 
     return { id, deleted: true };
@@ -382,6 +456,22 @@ function deleteGroup(id) {
   }
 }
 
+function getSyncState() {
+  const state = getDatabase().prepare(`
+    SELECT
+      revision,
+      updated_at AS updatedAt
+    FROM group_sync_state
+    WHERE id = 1
+  `).get();
+
+  if (!state) {
+    throw new Error('Group synchronization state is missing.');
+  }
+
+  return state;
+}
+
 module.exports = {
   GroupError,
   listGroups,
@@ -389,5 +479,8 @@ module.exports = {
   createGroup,
   updateGroup,
   deleteGroup,
+  listRooms,
+  getRoom,
+  getGroupsByRoom,
   getSyncState
 };
