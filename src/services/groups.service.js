@@ -158,6 +158,33 @@ function getGroup(id) {
   return group;
 }
 
+function getSyncState() {
+  const db = getDatabase();
+
+  const state = db.prepare(`
+    SELECT
+      revision,
+      updated_at AS updatedAt
+    FROM group_sync_state
+    WHERE id = 1
+  `).get();
+
+  if (!state) {
+    throw new Error('Group synchronization state is missing.');
+  }
+
+  return state;
+}
+
+function incrementSyncRevision(db) {
+  db.prepare(`
+    UPDATE group_sync_state
+    SET revision = revision + 1,
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE id = 1
+  `).run();
+}
+
 function validateKnownDevices(members, expectedType, knownDevices) {
   if (!Array.isArray(knownDevices)) {
     throw new GroupError(
@@ -230,6 +257,8 @@ function createGroup(input, knownDevices) {
       insertMember.run(id, mac);
     }
 
+    incrementSyncRevision(db);
+
     db.exec('COMMIT;');
 
     return getGroupById(db, id);
@@ -300,6 +329,8 @@ function updateGroup(id, input, knownDevices) {
       }
     }
 
+    incrementSyncRevision(db);
+
     db.exec('COMMIT;');
 
     return getGroupById(db, id);
@@ -325,12 +356,30 @@ function updateGroup(id, input, knownDevices) {
 function deleteGroup(id) {
   getGroup(id);
 
-  getDatabase().prepare(`
-    DELETE FROM groups
-    WHERE id = ?
-  `).run(id);
+  const db = getDatabase();
 
-  return { id, deleted: true };
+  db.exec('BEGIN IMMEDIATE;');
+
+  try {
+    db.prepare(`
+      DELETE FROM groups
+      WHERE id = ?
+    `).run(id);
+
+    incrementSyncRevision(db);
+
+    db.exec('COMMIT;');
+
+    return { id, deleted: true };
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK;');
+    } catch {
+      // Preserve the original error.
+    }
+
+    throw error;
+  }
 }
 
 module.exports = {
@@ -339,5 +388,6 @@ module.exports = {
   getGroup,
   createGroup,
   updateGroup,
-  deleteGroup
+  deleteGroup,
+  getSyncState
 };
