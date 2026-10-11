@@ -14,6 +14,9 @@ let socketReady = false;
 let closed = false;
 let socketStarting = false;
 
+const COLOR_TEMPERATURE_MIN = 2700;
+const COLOR_TEMPERATURE_MAX = 6500;
+
 socket.on('listening', () => {
   socketReady = true;
   socketStarting = false;
@@ -258,6 +261,22 @@ function setBrightness(ip, brightness) {
   });
 }
 
+function setColorTemperature(ip, temperature) {
+  if (
+    !Number.isInteger(temperature) ||
+    temperature < COLOR_TEMPERATURE_MIN ||
+    temperature > COLOR_TEMPERATURE_MAX
+  ) {
+    throw new Error(
+      `Color temperature must be an integer between ${COLOR_TEMPERATURE_MIN} and ${COLOR_TEMPERATURE_MAX} Kelvin.`
+    );
+  }
+
+  return setPilot(ip, {
+    temp: temperature
+  });
+}
+
 function setColor(ip, r, g, b) {
   const values = [r, g, b];
 
@@ -365,6 +384,7 @@ module.exports = {
   turnOff,
   toggle,
   setBrightness,
+  setColorTemperature,
   setColor,
   getState,
   getSystemConfig,
