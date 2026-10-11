@@ -8,6 +8,7 @@ const logger = require('./utils/logger');
 const bulbsRouter = require('./routes/bulbs.routes');
 const systemRouter = require('./routes/system.routes');
 const groupsRouter = require('./routes/groups.routes');
+const roomsRouter = require('./routes/rooms.routes');
 const syncRouter = require('./routes/sync.routes');
 
 const app = express();
@@ -36,6 +37,7 @@ app.get('/', (req, res) => {
 app.use('/api', authMiddleware);
 app.use('/api', bulbsRouter);
 app.use('/api', systemRouter);
+app.use('/api', roomsRouter);
 app.use('/api', groupsRouter);
 app.use('/api', syncRouter);
 
