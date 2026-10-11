@@ -8,6 +8,28 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+function requirePermission(permission) {
+  return (req, res, next) => {
+    if (
+      typeof req.hasPermission !== 'function' ||
+      !req.hasPermission(permission)
+    ) {
+      logger.warn(
+        `[API] Permission denied | method=${req.method} | path=${req.path} | permission=${permission} | tokenId=${req.apiToken?.id ?? 'unknown'}`
+      );
+
+      return response.failure(
+        res,
+        403,
+        'FORBIDDEN',
+        'The API token does not have the required permission.'
+      );
+    }
+
+    return next();
+  };
+}
+
 function validateIp(ip) {
   return typeof ip === 'string' && net.isIP(ip) === 4;
 }
@@ -76,137 +98,166 @@ function requireIp(req, res, next) {
   return next();
 }
 
-router.post('/on', requireIp, async (req, res) => {
-  try {
-    const result = await wiz.turnOn(req.deviceIp);
+router.post(
+  '/on',
+  requirePermission('devices.control'),
+  requireIp,
+  async (req, res) => {
+    try {
+      const result = await wiz.turnOn(req.deviceIp);
 
-    return response.success(res, {
-      ip: req.deviceIp,
-      result
-    });
-  } catch (error) {
-    return handleError(res, error);
+      return response.success(res, {
+        ip: req.deviceIp,
+        result
+      });
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
-router.post('/off', requireIp, async (req, res) => {
-  try {
-    const result = await wiz.turnOff(req.deviceIp);
+router.post(
+  '/off',
+  requirePermission('devices.control'),
+  requireIp,
+  async (req, res) => {
+    try {
+      const result = await wiz.turnOff(req.deviceIp);
 
-    return response.success(res, {
-      ip: req.deviceIp,
-      result
-    });
-  } catch (error) {
-    return handleError(res, error);
+      return response.success(res, {
+        ip: req.deviceIp,
+        result
+      });
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
-router.post('/toggle', requireIp, async (req, res) => {
-  try {
-    const result = await wiz.toggle(req.deviceIp);
+router.post(
+  '/toggle',
+  requirePermission('devices.control'),
+  requireIp,
+  async (req, res) => {
+    try {
+      const result = await wiz.toggle(req.deviceIp);
 
-    return response.success(res, {
-      ip: req.deviceIp,
-      result
-    });
-  } catch (error) {
-    return handleError(res, error);
+      return response.success(res, {
+        ip: req.deviceIp,
+        result
+      });
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
-router.post('/brightness', requireIp, async (req, res) => {
-  const brightness = req.body?.brightness;
+router.post(
+  '/brightness',
+  requirePermission('devices.control'),
+  requireIp,
+  async (req, res) => {
+    const brightness = req.body?.brightness;
 
-  if (
-    !Number.isInteger(brightness) ||
-    brightness < 10 ||
-    brightness > 100
-  ) {
-    return response.failure(
-      res,
-      400,
-      'VALIDATION_ERROR',
-      'Brightness must be an integer between 10 and 100.'
-    );
+    if (
+      !Number.isInteger(brightness) ||
+      brightness < 10 ||
+      brightness > 100
+    ) {
+      return response.failure(
+        res,
+        400,
+        'VALIDATION_ERROR',
+        'Brightness must be an integer between 10 and 100.'
+      );
+    }
+
+    try {
+      const result = await wiz.setBrightness(
+        req.deviceIp,
+        brightness
+      );
+
+      return response.success(res, {
+        ip: req.deviceIp,
+        brightness,
+        result
+      });
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
+);
 
-  try {
-    const result = await wiz.setBrightness(
-      req.deviceIp,
-      brightness
-    );
+router.post(
+  '/color',
+  requirePermission('devices.control'),
+  requireIp,
+  async (req, res) => {
+    const { r, g, b } = req.body || {};
+    const values = [r, g, b];
 
-    return response.success(res, {
-      ip: req.deviceIp,
-      brightness,
-      result
-    });
-  } catch (error) {
-    return handleError(res, error);
+    if (
+      !values.every(
+        (value) =>
+          Number.isInteger(value) &&
+          value >= 0 &&
+          value <= 255
+      )
+    ) {
+      return response.failure(
+        res,
+        400,
+        'VALIDATION_ERROR',
+        'RGB values must be integers between 0 and 255.'
+      );
+    }
+
+    try {
+      const result = await wiz.setColor(
+        req.deviceIp,
+        r,
+        g,
+        b
+      );
+
+      return response.success(res, {
+        ip: req.deviceIp,
+        color: { r, g, b },
+        result
+      });
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
-router.post('/color', requireIp, async (req, res) => {
-  const { r, g, b } = req.body || {};
-  const values = [r, g, b];
+router.get(
+  '/state/:ip',
+  requirePermission('devices.read'),
+  async (req, res) => {
+    const { ip } = req.params;
 
-  if (
-    !values.every(
-      (value) =>
-        Number.isInteger(value) &&
-        value >= 0 &&
-        value <= 255
-    )
-  ) {
-    return response.failure(
-      res,
-      400,
-      'VALIDATION_ERROR',
-      'RGB values must be integers between 0 and 255.'
-    );
+    if (!validateIp(ip)) {
+      return response.failure(
+        res,
+        400,
+        'VALIDATION_ERROR',
+        'A valid IPv4 address is required.'
+      );
+    }
+
+    try {
+      const state = await wiz.getState(ip);
+
+      return response.success(res, {
+        ip,
+        state: state.result
+      });
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-
-  try {
-    const result = await wiz.setColor(
-      req.deviceIp,
-      r,
-      g,
-      b
-    );
-
-    return response.success(res, {
-      ip: req.deviceIp,
-      color: { r, g, b },
-      result
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-});
-
-router.get('/state/:ip', async (req, res) => {
-  const { ip } = req.params;
-
-  if (!validateIp(ip)) {
-    return response.failure(
-      res,
-      400,
-      'VALIDATION_ERROR',
-      'A valid IPv4 address is required.'
-    );
-  }
-
-  try {
-    const state = await wiz.getState(ip);
-
-    return response.success(res, {
-      ip,
-      state: state.result
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-});
+);
 
 module.exports = router;

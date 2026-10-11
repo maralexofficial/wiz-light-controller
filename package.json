@@ -12,7 +12,8 @@
     "smart-home",
     "rest-api",
     "express",
-    "pm2"
+    "pm2",
+    "api-tokens"
   ],
   "license": "ISC",
   "scripts": {
@@ -20,6 +21,10 @@
     "dev": "nodemon src/server.js",
     "test:migration-5": "node tests/migration-5.js",
     "wiz:sync": "node scripts/wiz-sync.js",
+    "token:create": "node scripts/token.js create",
+    "token:list": "node scripts/token.js list",
+    "token:permissions": "node scripts/token.js permissions",
+    "token:revoke": "node scripts/token.js revoke",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop wiz-light-controller",
     "pm2:restart": "pm2 restart wiz-light-controller",

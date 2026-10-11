@@ -9,24 +9,38 @@ const LEGACY_TOKEN_NAME = 'Migrated legacy API token';
 
 function bootstrapLegacyToken() {
   const db = getDatabase();
-  const legacyToken = config.apiToken;
 
-  if (
-    typeof legacyToken !== 'string' ||
-    legacyToken.length < 32
-  ) {
+  const legacyToken = config.legacyApiToken || config.apiToken || '';
+
+  const tokenCount = db.prepare(
+    'SELECT COUNT(*) AS count FROM api_tokens'
+  ).get();
+
+  const existingCount = Number(tokenCount?.count ?? 0);
+
+  if (!legacyToken) {
+    if (existingCount > 0) {
+      logger.info(
+        `[TOKENS] Token storage already initialized | tokens=${existingCount}`
+      );
+
+      return {
+        id: null,
+        created: false,
+        skipped: true
+      };
+    }
+
     throw new Error(
-      'A valid legacy API token is required for the initial token migration.'
+      'No API tokens exist and API_TOKEN is not configured. Set API_TOKEN temporarily to import the initial token.'
     );
   }
 
   const legacyHash = tokenService.hashToken(legacyToken);
 
-  const existing = db.prepare(`
-    SELECT id, name
-    FROM api_tokens
-    WHERE token_hash = ?
-  `).get(legacyHash);
+  const existing = db.prepare(
+    'SELECT id, name FROM api_tokens WHERE token_hash = ?'
+  ).get(legacyHash);
 
   if (existing) {
     logger.info(
@@ -34,8 +48,9 @@ function bootstrapLegacyToken() {
     );
 
     return {
-      id: existing.id,
-      created: false
+      id: Number(existing.id),
+      created: false,
+      skipped: false
     };
   }
 
@@ -60,7 +75,8 @@ function bootstrapLegacyToken() {
 
   return {
     id,
-    created: true
+    created: true,
+    skipped: false
   };
 }
 

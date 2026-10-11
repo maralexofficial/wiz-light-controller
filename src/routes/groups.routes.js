@@ -11,6 +11,28 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+function requirePermission(permission) {
+  return (req, res, next) => {
+    if (
+      typeof req.hasPermission !== 'function' ||
+      !req.hasPermission(permission)
+    ) {
+      logger.warn(
+        `[API] Permission denied | method=${req.method} | path=${req.path} | permission=${permission} | tokenId=${req.apiToken?.id ?? 'unknown'}`
+      );
+
+      return response.failure(
+        res,
+        403,
+        'FORBIDDEN',
+        'The API token does not have the required permission.'
+      );
+    }
+
+    return next();
+  };
+}
+
 function handleGroupError(res, error) {
   if (error instanceof groupsService.GroupError) {
     return response.failure(
@@ -339,102 +361,138 @@ async function handleGroupAction(req, res, action, value) {
   }
 }
 
-router.get('/groups', (req, res) => {
-  try {
-    return response.success(res, groupsService.listGroups());
-  } catch (error) {
-    return handleGroupError(res, error);
+router.get(
+  '/groups',
+  requirePermission('groups.read'),
+  (req, res) => {
+    try {
+      return response.success(res, groupsService.listGroups());
+    } catch (error) {
+      return handleGroupError(res, error);
+    }
   }
-});
+);
 
-router.get('/groups/:id', (req, res) => {
-  try {
-    return response.success(res, groupsService.getGroup(req.params.id));
-  } catch (error) {
-    return handleGroupError(res, error);
+router.get(
+  '/groups/:id',
+  requirePermission('groups.read'),
+  (req, res) => {
+    try {
+      return response.success(res, groupsService.getGroup(req.params.id));
+    } catch (error) {
+      return handleGroupError(res, error);
+    }
   }
-});
+);
 
-router.post('/groups', (req, res) => {
-  try {
-    const group = groupsService.createGroup(
-      req.body,
-      getKnownDevices()
-    );
+router.post(
+  '/groups',
+  requirePermission('groups.create'),
+  (req, res) => {
+    try {
+      const group = groupsService.createGroup(
+        req.body,
+        getKnownDevices()
+      );
 
-    return response.success(res, group, 201);
-  } catch (error) {
-    return handleGroupError(res, error);
+      return response.success(res, group, 201);
+    } catch (error) {
+      return handleGroupError(res, error);
+    }
   }
-});
+);
 
-router.patch('/groups/:id', (req, res) => {
-  try {
-    const group = groupsService.updateGroup(
-      req.params.id,
-      req.body,
-      getKnownDevices()
-    );
+router.patch(
+  '/groups/:id',
+  requirePermission('groups.update'),
+  (req, res) => {
+    try {
+      const group = groupsService.updateGroup(
+        req.params.id,
+        req.body,
+        getKnownDevices()
+      );
 
-    return response.success(res, group);
-  } catch (error) {
-    return handleGroupError(res, error);
+      return response.success(res, group);
+    } catch (error) {
+      return handleGroupError(res, error);
+    }
   }
-});
+);
 
-router.delete('/groups/:id', (req, res) => {
-  try {
-    groupsService.deleteGroup(req.params.id);
+router.delete(
+  '/groups/:id',
+  requirePermission('groups.delete'),
+  (req, res) => {
+    try {
+      groupsService.deleteGroup(req.params.id);
 
-    return response.success(res, {
-      id: req.params.id,
-      deleted: true
-    });
-  } catch (error) {
-    return handleGroupError(res, error);
+      return response.success(res, {
+        id: req.params.id,
+        deleted: true
+      });
+    } catch (error) {
+      return handleGroupError(res, error);
+    }
   }
-});
+);
 
-router.post('/groups/:id/on', (req, res) => {
-  return handleGroupAction(req, res, 'on');
-});
-
-router.post('/groups/:id/off', (req, res) => {
-  return handleGroupAction(req, res, 'off');
-});
-
-router.post('/groups/:id/brightness', (req, res) => {
-  const brightness = req.body?.brightness;
-
-  if (
-    !Number.isInteger(brightness) ||
-    brightness < 10 ||
-    brightness > 100
-  ) {
-    return response.failure(
-      res,
-      400,
-      'INVALID_BRIGHTNESS',
-      'Brightness must be an integer between 10 and 100.'
-    );
+router.post(
+  '/groups/:id/on',
+  requirePermission('devices.control'),
+  (req, res) => {
+    return handleGroupAction(req, res, 'on');
   }
+);
 
-  return handleGroupAction(req, res, 'brightness', brightness);
-});
-
-router.post('/groups/:id/temperature', (req, res) => {
-  const temperature = req.body?.temperature;
-
-  if (!Number.isInteger(temperature)) {
-    return response.failure(
-      res,
-      400,
-      'INVALID_TEMPERATURE',
-      'Temperature must be an integer value in Kelvin.'
-    );
+router.post(
+  '/groups/:id/off',
+  requirePermission('devices.control'),
+  (req, res) => {
+    return handleGroupAction(req, res, 'off');
   }
+);
 
-  return handleGroupAction(req, res, 'temperature', temperature);
-});
+router.post(
+  '/groups/:id/brightness',
+  requirePermission('devices.control'),
+  (req, res) => {
+    const brightness = req.body?.brightness;
+
+    if (
+      !Number.isInteger(brightness) ||
+      brightness < 10 ||
+      brightness > 100
+    ) {
+      return response.failure(
+        res,
+        400,
+        'INVALID_BRIGHTNESS',
+        'Brightness must be an integer between 10 and 100.'
+      );
+    }
+
+    return handleGroupAction(req, res, 'brightness', brightness);
+  }
+);
+
+router.post(
+  '/groups/:id/temperature',
+  requirePermission('devices.control'),
+  (req, res) => {
+    const temperature = req.body?.temperature;
+
+    if (!Number.isInteger(temperature)) {
+      return response.failure(
+        res,
+        400,
+        'INVALID_TEMPERATURE',
+        'Temperature must be an integer value in Kelvin.'
+      );
+    }
+
+    return handleGroupAction(req, res, 'temperature', temperature);
+  }
+);
 
 module.exports = router;

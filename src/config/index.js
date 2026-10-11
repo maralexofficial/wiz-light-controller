@@ -52,13 +52,31 @@ function parseLogLevel(value) {
   return normalized;
 }
 
-const apiToken = process.env.API_TOKEN
+function parseBoolean(value, defaultValue) {
+  if (value === undefined || value === '') {
+    return defaultValue;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+
+  if (['true', '1', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['false', '0', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Invalid boolean value: ${value}`);
+}
+
+const legacyApiToken = process.env.API_TOKEN
   ? process.env.API_TOKEN.trim()
   : '';
 
-if (apiToken.length < 32) {
+if (legacyApiToken && legacyApiToken.length < 32) {
   throw new Error(
-    'API_TOKEN must contain at least 32 characters.'
+    'API_TOKEN must contain at least 32 characters when provided.'
   );
 }
 
@@ -103,10 +121,10 @@ const config = {
     'DISCOVERY_PHONE_MAC'
   ),
 
-  discoveryRegister: process.env.DISCOVERY_REGISTER === undefined ||
-    process.env.DISCOVERY_REGISTER === ''
-    ? false
-    : parseBoolean(process.env.DISCOVERY_REGISTER),
+  discoveryRegister: parseBoolean(
+    process.env.DISCOVERY_REGISTER,
+    false
+  ),
 
   discoveryPhoneIp: parseString(
     process.env.DISCOVERY_PHONE_IP,
@@ -146,7 +164,10 @@ const config = {
     30000
   ),
 
-  apiToken,
+  // Legacy token is used only to import the existing token into SQLite.
+  // API authentication itself is handled by the token database.
+  apiToken: legacyApiToken,
+  legacyApiToken,
 
   logLevel: parseLogLevel(process.env.LOG_LEVEL),
 
@@ -193,20 +214,6 @@ if (!['development', 'production', 'test'].includes(config.nodeEnv)) {
   throw new Error(
     'NODE_ENV must be development, production, or test.'
   );
-}
-
-function parseBoolean(value) {
-  const normalized = String(value).trim().toLowerCase();
-
-  if (['true', '1', 'yes', 'on'].includes(normalized)) {
-    return true;
-  }
-
-  if (['false', '0', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
-
-  throw new Error(`Invalid boolean value: ${value}`);
 }
 
 module.exports = Object.freeze(config);

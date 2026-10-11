@@ -25,6 +25,28 @@ let lastDiscoveryTime = null;
 let homeData = null;
 let homeDataLoadPromise = null;
 
+function requirePermission(permission) {
+  return (req, res, next) => {
+    if (
+      typeof req.hasPermission !== 'function' ||
+      !req.hasPermission(permission)
+    ) {
+      logger.warn(
+        `[API] Permission denied | method=${req.method} | path=${req.path} | permission=${permission} | tokenId=${req.apiToken?.id ?? 'unknown'}`
+      );
+
+      return response.failure(
+        res,
+        403,
+        'FORBIDDEN',
+        'The API token does not have the required permission.'
+      );
+    }
+
+    return next();
+  };
+}
+
 function validateHomeData(data) {
   if (
     !data ||
@@ -289,163 +311,187 @@ async function runBulkStateRequest() {
   });
 }
 
-router.get('/discover', async (req, res) => {
-  if (discoveryInProgress) {
-    return response.failure(
-      res,
-      409,
-      'DISCOVERY_IN_PROGRESS',
-      'Device discovery is already in progress.'
-    );
+router.get(
+  '/discover',
+  requirePermission('devices.discover'),
+  async (req, res) => {
+    if (discoveryInProgress) {
+      return response.failure(
+        res,
+        409,
+        'DISCOVERY_IN_PROGRESS',
+        'Device discovery is already in progress.'
+      );
+    }
+
+    discoveryInProgress = true;
+
+    try {
+      await ensureHomeDataLoaded();
+
+      const devices = await discovery.discoverDevices();
+
+      const enrichedDevices = await Promise.all(
+        devices.map(async (bulb) => {
+          try {
+            const info = await wiz.getDeviceInfo(bulb.ip);
+            return enrichDeviceInfo(bulb, info);
+          } catch (error) {
+            logger.warn(
+              `[API] Device information request failed for ${bulb.ip}:`,
+              error?.message || 'Unknown error'
+            );
+
+            const metadata = getDeviceMetadata(bulb.mac);
+
+            return {
+              ip: bulb.ip,
+              mac: bulb.mac,
+              success: bulb.success,
+              roomId: null,
+              roomName: metadata.roomName,
+              deviceName: metadata.deviceName,
+              deviceType: metadata.deviceType,
+              moduleName: null,
+              firmwareVersion: null,
+              state: null,
+              rssi: null
+            };
+          }
+        })
+      );
+
+      discoveredBulbs = enrichedDevices;
+      lastDiscoveryTime = Date.now();
+
+      logger.info(
+        `[API] Discovery completed | devices=${discoveredBulbs.length}`
+      );
+
+      return response.success(res, {
+        count: discoveredBulbs.length,
+        bulbs: getDiscoveredBulbs(),
+        lastDiscoveryTime
+      });
+    } catch (error) {
+      return handleError(res, error);
+    } finally {
+      discoveryInProgress = false;
+    }
   }
+);
 
-  discoveryInProgress = true;
-
-  try {
-    await ensureHomeDataLoaded();
-
-    const devices = await discovery.discoverDevices();
-
-    const enrichedDevices = await Promise.all(
-      devices.map(async (bulb) => {
-        try {
-          const info = await wiz.getDeviceInfo(bulb.ip);
-          return enrichDeviceInfo(bulb, info);
-        } catch (error) {
-          logger.warn(
-            `[API] Device information request failed for ${bulb.ip}:`,
-            error?.message || 'Unknown error'
-          );
-
-          const metadata = getDeviceMetadata(bulb.mac);
-
-          return {
-            ip: bulb.ip,
-            mac: bulb.mac,
-            success: bulb.success,
-            roomId: null,
-            roomName: metadata.roomName,
-            deviceName: metadata.deviceName,
-            deviceType: metadata.deviceType,
-            moduleName: null,
-            firmwareVersion: null,
-            state: null,
-            rssi: null
-          };
-        }
-      })
-    );
-
-    discoveredBulbs = enrichedDevices;
-    lastDiscoveryTime = Date.now();
-
-    logger.info(
-      `[API] Discovery completed | devices=${discoveredBulbs.length}`
-    );
-
+router.get(
+  '/bulbs',
+  requirePermission('devices.read'),
+  (req, res) => {
     return response.success(res, {
       count: discoveredBulbs.length,
       bulbs: getDiscoveredBulbs(),
       lastDiscoveryTime
     });
-  } catch (error) {
-    return handleError(res, error);
-  } finally {
-    discoveryInProgress = false;
   }
-});
+);
 
-router.get('/bulbs', (req, res) => {
-  return response.success(res, {
-    count: discoveredBulbs.length,
-    bulbs: getDiscoveredBulbs(),
-    lastDiscoveryTime
-  });
-});
+router.get(
+  '/states',
+  requirePermission('devices.read'),
+  async (req, res) => {
+    if (discoveredBulbs.length === 0) {
+      return response.failure(
+        res,
+        503,
+        'NO_DISCOVERED_DEVICES',
+        'No discovered devices are available. Call GET /api/discover first.'
+      );
+    }
 
-router.get('/states', async (req, res) => {
-  if (discoveredBulbs.length === 0) {
-    return response.failure(
-      res,
-      503,
-      'NO_DISCOVERED_DEVICES',
-      'No discovered devices are available. Call GET /api/discover first.'
-    );
+    try {
+      const results = await runBulkStateRequest();
+      const succeeded = results.filter((item) => item.success).length;
+      const failed = results.length - succeeded;
+
+      return response.success(
+        res,
+        {
+          count: results.length,
+          succeeded,
+          failed,
+          lastDiscoveryTime,
+          results
+        },
+        failed > 0 ? 207 : 200
+      );
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
+);
 
-  try {
-    const results = await runBulkStateRequest();
-    const succeeded = results.filter((item) => item.success).length;
-    const failed = results.length - succeeded;
+router.post(
+  '/broadcast/on',
+  requirePermission('system.broadcast'),
+  async (req, res) => {
+    try {
+      const results = await runBroadcast('on');
+      const succeeded = results.filter((item) => item.success).length;
+      const failed = results.length - succeeded;
 
-    return response.success(
-      res,
-      {
-        count: results.length,
-        succeeded,
-        failed,
-        lastDiscoveryTime,
-        results
-      },
-      failed > 0 ? 207 : 200
-    );
-  } catch (error) {
-    return handleError(res, error);
+      return response.success(
+        res,
+        {
+          action: 'on',
+          count: results.length,
+          succeeded,
+          failed,
+          results
+        },
+        failed > 0 ? 207 : 200
+      );
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
-router.post('/broadcast/on', async (req, res) => {
-  try {
-    const results = await runBroadcast('on');
-    const succeeded = results.filter((item) => item.success).length;
-    const failed = results.length - succeeded;
+router.post(
+  '/broadcast/off',
+  requirePermission('system.broadcast'),
+  async (req, res) => {
+    try {
+      const results = await runBroadcast('off');
+      const succeeded = results.filter((item) => item.success).length;
+      const failed = results.length - succeeded;
 
-    return response.success(
-      res,
-      {
-        action: 'on',
-        count: results.length,
-        succeeded,
-        failed,
-        results
-      },
-      failed > 0 ? 207 : 200
-    );
-  } catch (error) {
-    return handleError(res, error);
+      return response.success(
+        res,
+        {
+          action: 'off',
+          count: results.length,
+          succeeded,
+          failed,
+          results
+        },
+        failed > 0 ? 207 : 200
+      );
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
-router.post('/broadcast/off', async (req, res) => {
-  try {
-    const results = await runBroadcast('off');
-    const succeeded = results.filter((item) => item.success).length;
-    const failed = results.length - succeeded;
-
-    return response.success(
-      res,
-      {
-        action: 'off',
-        count: results.length,
-        succeeded,
-        failed,
-        results
-      },
-      failed > 0 ? 207 : 200
-    );
-  } catch (error) {
-    return handleError(res, error);
+router.get(
+  '/health',
+  requirePermission('system.read'),
+  (req, res) => {
+    return response.success(res, {
+      status: 'running',
+      uptime: Math.floor(process.uptime()),
+      discoveredBulbs: discoveredBulbs.length,
+      lastDiscoveryTime
+    });
   }
-});
-
-router.get('/health', (req, res) => {
-  return response.success(res, {
-    status: 'running',
-    uptime: Math.floor(process.uptime()),
-    discoveredBulbs: discoveredBulbs.length,
-    lastDiscoveryTime
-  });
-});
+);
 
 module.exports = router;
 module.exports.getDiscoveredBulbs = getDiscoveredBulbs;

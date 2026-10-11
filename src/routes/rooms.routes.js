@@ -7,6 +7,25 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+function requirePermission(permission) {
+  return (req, res, next) => {
+    if (!req.hasPermission || !req.hasPermission(permission)) {
+      logger.warn(
+        `[API] Permission denied | method=${req.method} | path=${req.path} | permission=${permission} | tokenId=${req.apiToken?.id ?? 'unknown'}`
+      );
+
+      return response.failure(
+        res,
+        403,
+        'FORBIDDEN',
+        'The API token does not have the required permission.'
+      );
+    }
+
+    return next();
+  };
+}
+
 function handleError(res, error) {
   if (error instanceof groupsService.GroupError) {
     return response.failure(
@@ -28,22 +47,30 @@ function handleError(res, error) {
   );
 }
 
-router.get('/rooms', (req, res) => {
-  try {
-    const rooms = groupsService.listRooms();
-    return response.success(res, rooms);
-  } catch (error) {
-    return handleError(res, error);
+router.get(
+  '/rooms',
+  requirePermission('rooms.read'),
+  (req, res) => {
+    try {
+      const rooms = groupsService.listRooms();
+      return response.success(res, rooms);
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
-router.get('/rooms/:roomId/groups', (req, res) => {
-  try {
-    const result = groupsService.getGroupsByRoom(req.params.roomId);
-    return response.success(res, result);
-  } catch (error) {
-    return handleError(res, error);
+router.get(
+  '/rooms/:roomId/groups',
+  requirePermission('rooms.read'),
+  (req, res) => {
+    try {
+      const result = groupsService.getGroupsByRoom(req.params.roomId);
+      return response.success(res, result);
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-});
+);
 
 module.exports = router;
