@@ -154,6 +154,20 @@ function getDiscoveredBulbs() {
   return discoveredBulbs.map((bulb) => ({ ...bulb }));
 }
 
+function findDiscoveredBulbByMac(mac) {
+  const normalizedMac = normalizeMac(mac);
+
+  if (!normalizedMac) {
+    return null;
+  }
+
+  const bulb = discoveredBulbs.find(
+    (item) => normalizeMac(item.mac) === normalizedMac
+  );
+
+  return bulb ? { ...bulb } : null;
+}
+
 function enrichDeviceInfo(bulb, info) {
   const systemConfig = info?.systemConfig || {};
   const deviceState = info?.state;
@@ -434,3 +448,5 @@ router.get('/health', (req, res) => {
 });
 
 module.exports = router;
+module.exports.getDiscoveredBulbs = getDiscoveredBulbs;
+module.exports.findDiscoveredBulbByMac = findDiscoveredBulbByMac;
