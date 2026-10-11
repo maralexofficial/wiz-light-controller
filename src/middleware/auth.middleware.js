@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const config = require('../config');
+const tokenService = require('../services/token.service');
 const response = require('../utils/response');
 const logger = require('../utils/logger');
 
@@ -35,29 +35,43 @@ function authMiddleware(req, res, next) {
     return unauthorized(res);
   }
 
-  const providedBuffer = Buffer.from(match[1], 'utf8');
-  const expectedBuffer = Buffer.from(config.apiToken, 'utf8');
+  let token;
 
-  if (providedBuffer.length !== expectedBuffer.length) {
+  try {
+    token = tokenService.findActiveToken(match[1]);
+  } catch (error) {
+    logger.error(
+      '[API] Token authentication failed:',
+      error.message
+    );
+
+    return response.failure(
+      res,
+      500,
+      'AUTHENTICATION_UNAVAILABLE',
+      'Authentication is temporarily unavailable.'
+    );
+  }
+
+  if (!token) {
     logger.warn(
-      `[API] Authentication failed | method=${req.method} | path=${req.path} | reason=token_length_mismatch`
+      `[API] Authentication failed | method=${req.method} | path=${req.path} | reason=invalid_or_inactive_token`
     );
 
     return unauthorized(res);
   }
 
-  const tokenMatches = crypto.timingSafeEqual(
-    providedBuffer,
-    expectedBuffer
+  req.apiToken = {
+    id: token.id,
+    name: token.name,
+    permissions: token.permissions
+  };
+
+  req.hasPermission = (permission) => (
+    typeof permission === 'string' &&
+    Array.isArray(req.apiToken.permissions) &&
+    req.apiToken.permissions.includes(permission)
   );
-
-  if (!tokenMatches) {
-    logger.warn(
-      `[API] Authentication failed | method=${req.method} | path=${req.path} | reason=invalid_token`
-    );
-
-    return unauthorized(res);
-  }
 
   return next();
 }
