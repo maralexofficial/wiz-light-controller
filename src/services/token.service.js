@@ -1,4 +1,3 @@
-
 'use strict';
 
 const crypto = require('node:crypto');
@@ -64,6 +63,24 @@ function normalizePermissions(permissions) {
   return uniquePermissions.sort();
 }
 
+function normalizeExpiry(expiresAt) {
+  if (expiresAt === null || expiresAt === undefined) {
+    return null;
+  }
+
+  if (typeof expiresAt !== 'string' || expiresAt.trim().length === 0) {
+    throw new Error('Expiry must be a valid future date.');
+  }
+
+  const timestamp = Date.parse(expiresAt);
+
+  if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
+    throw new Error('Expiry must be a valid future date.');
+  }
+
+  return new Date(timestamp).toISOString();
+}
+
 function createToken(name, permissions, options = {}) {
   if (
     typeof name !== 'string' ||
@@ -73,21 +90,19 @@ function createToken(name, permissions, options = {}) {
     throw new Error('Token name must contain between 1 and 80 characters.');
   }
 
+  if (
+    options === null ||
+    typeof options !== 'object' ||
+    Array.isArray(options)
+  ) {
+    throw new Error('Token options must be an object.');
+  }
+
   const normalizedPermissions = normalizePermissions(permissions);
+  const expiresAt = normalizeExpiry(options.expiresAt);
   const token = crypto.randomBytes(32).toString('base64url');
   const tokenHash = hashToken(token);
-  const expiresAt = options.expiresAt ?? null;
-
-  if (
-    expiresAt !== null &&
-    (
-      typeof expiresAt !== 'string' ||
-      !Number.isFinite(Date.parse(expiresAt)) ||
-      Date.parse(expiresAt) <= Date.now()
-    )
-  ) {
-    throw new Error('Expiry must be a valid future date.');
-  }
+  const normalizedName = name.trim();
 
   const db = getDatabase();
 
@@ -100,7 +115,7 @@ function createToken(name, permissions, options = {}) {
     )
     VALUES (?, ?, ?, ?)
   `).run(
-    name.trim(),
+    normalizedName,
     tokenHash,
     JSON.stringify(normalizedPermissions),
     expiresAt
@@ -108,7 +123,7 @@ function createToken(name, permissions, options = {}) {
 
   return {
     id: Number(result.lastInsertRowid),
-    name: name.trim(),
+    name: normalizedName,
     token,
     permissions: normalizedPermissions,
     expiresAt
@@ -130,7 +145,10 @@ function findActiveToken(token) {
     FROM api_tokens
     WHERE token_hash = ?
       AND revoked_at IS NULL
-      AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      AND (
+        expires_at IS NULL
+        OR julianday(expires_at) > julianday('now')
+      )
   `).get(tokenHash);
 
   if (!record) {
@@ -148,7 +166,7 @@ function findActiveToken(token) {
   }
 
   return {
-    id: record.id,
+    id: Number(record.id),
     name: record.name,
     permissions,
     createdAt: record.created_at,
@@ -183,7 +201,7 @@ function listTokens() {
     }
 
     return {
-      id: record.id,
+      id: Number(record.id),
       name: record.name,
       permissions,
       createdAt: record.created_at,
