@@ -57,6 +57,25 @@ const migrations = [
           ON group_members(device_mac);
       `);
     }
+  },
+  {
+    version: 3,
+    description: 'Create group synchronization revision',
+    up(db) {
+      db.exec(`
+        CREATE TABLE group_sync_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          revision INTEGER NOT NULL DEFAULT 0
+            CHECK (revision >= 0),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          )
+        );
+
+        INSERT INTO group_sync_state (id, revision)
+        VALUES (1, 0);
+      `);
+    }
   }
 ];
 
