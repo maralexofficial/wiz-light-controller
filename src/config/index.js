@@ -70,16 +70,6 @@ function parseBoolean(value, defaultValue) {
   throw new Error(`Invalid boolean value: ${value}`);
 }
 
-const legacyApiToken = process.env.API_TOKEN
-  ? process.env.API_TOKEN.trim()
-  : '';
-
-if (legacyApiToken && legacyApiToken.length < 32) {
-  throw new Error(
-    'API_TOKEN must contain at least 32 characters when provided.'
-  );
-}
-
 const config = {
   host: parseString(
     process.env.HOST,
@@ -163,11 +153,6 @@ const config = {
     500,
     30000
   ),
-
-  // Legacy token is used only to import the existing token into SQLite.
-  // API authentication itself is handled by the token database.
-  apiToken: legacyApiToken,
-  legacyApiToken,
 
   logLevel: parseLogLevel(process.env.LOG_LEVEL),
 
