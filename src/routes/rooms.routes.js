@@ -9,7 +9,10 @@ const router = express.Router();
 
 function requirePermission(permission) {
   return (req, res, next) => {
-    if (!req.hasPermission || !req.hasPermission(permission)) {
+    if (
+      typeof req.hasPermission !== 'function' ||
+      !req.hasPermission(permission)
+    ) {
       logger.warn(
         `[API] Permission denied | method=${req.method} | path=${req.path} | permission=${permission} | tokenId=${req.apiToken?.id ?? 'unknown'}`
       );
@@ -28,11 +31,31 @@ function requirePermission(permission) {
 
 function handleError(res, error) {
   if (error instanceof groupsService.GroupError) {
+    const status = Number.isInteger(error.status)
+      ? error.status
+      : Number.isInteger(error.statusCode)
+        ? error.statusCode
+        : 500;
+
+    const code =
+      typeof error.code === 'string' && error.code.length > 0
+        ? error.code
+        : 'ROOMS_REQUEST_FAILED';
+
+    const message =
+      typeof error.message === 'string' && error.message.length > 0
+        ? error.message
+        : 'Unable to retrieve room data.';
+
+    if (status === 500) {
+      logger.error('[ROOMS] Group service error:', error);
+    }
+
     return response.failure(
       res,
-      error.status,
-      error.code,
-      error.message,
+      status,
+      code,
+      message,
       error.details
     );
   }
