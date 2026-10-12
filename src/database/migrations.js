@@ -1,4 +1,3 @@
-
 'use strict';
 
 const fs = require('node:fs');
@@ -447,6 +446,28 @@ const migrations = [
 
         CREATE INDEX idx_api_tokens_active
           ON api_tokens(revoked_at, expires_at);
+      `);
+    }
+  },
+  {
+    version: 7,
+    description: 'Persist the latest device discovery snapshot',
+    up(db) {
+      db.exec(`
+        CREATE TABLE device_discovery_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+
+          devices_json TEXT NOT NULL
+            CHECK (json_valid(devices_json))
+            CHECK (json_type(devices_json) = 'array'),
+
+          last_discovery_time INTEGER NOT NULL
+            CHECK (last_discovery_time > 0),
+
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          )
+        );
       `);
     }
   }
