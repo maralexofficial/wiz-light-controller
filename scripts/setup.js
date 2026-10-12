@@ -32,27 +32,85 @@ async function promptForIntegrationUrl() {
     );
   }
 
-  const terminal = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
+  writeOutput('WiZ integration setup');
+  writeOutput('Paste the integration URL from the WiZ app.');
+  writeOutput('Input is hidden.');
 
-  try {
-    writeOutput(
-      'WiZ integration setup\n' +
-      'Paste the integration URL from the WiZ app.'
-    );
+  return new Promise((resolve, reject) => {
+    const stdin = process.stdin;
+    let input = '';
+    let finished = false;
 
-    const url = await terminal.question('Integration URL: ');
+    function cleanup() {
+      stdin.removeListener('data', onData);
 
-    if (!url.trim()) {
+      if (stdin.isTTY) {
+        stdin.setRawMode(false);
+      }
+
+      stdin.pause();
+    }
+
+    function finish(error, value) {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      cleanup();
+      writeOutput();
+
+      if (error) {
+        reject(error);
+      } else {
+        resolve(value);
+      }
+    }
+
+    function onData(chunk) {
+      for (const character of chunk.toString('utf8')) {
+        if (character === '\u0003') {
+          finish(new Error('Setup cancelled by user.'));
+          return;
+        }
+
+        if (character === '\r' || character === '\n') {
+          finish(
+            null,
+            input.trim()
+          );
+          return;
+        }
+
+        if (character === '\u007f' || character === '\b') {
+          input = input.slice(0, -1);
+          continue;
+        }
+
+        if (character >= ' ') {
+          input += character;
+        }
+      }
+    }
+
+    try {
+      stdin.setRawMode(true);
+      stdin.resume();
+      stdin.setEncoding('utf8');
+      stdin.on('data', onData);
+      process.stdout.write('Integration URL: ');
+    } catch (error) {
+      finish(
+        new Error(`Could not enable hidden input: ${error.message}`)
+      );
+    }
+  }).then((url) => {
+    if (!url) {
       throw new Error('An integration URL is required.');
     }
 
-    return url.trim();
-  } finally {
-    terminal.close();
-  }
+    return url;
+  });
 }
 
 function getTokenCount() {
@@ -122,8 +180,6 @@ async function main() {
   try {
     const integrationUrl = await promptForIntegrationUrl();
 
-    // Download and validate the integration data before changing
-    // the database or creating any token.
     await syncHomeData(integrationUrl);
 
     initializeDatabase();
@@ -141,7 +197,9 @@ async function main() {
     writeOutput('');
     writeOutput('Setup completed.');
     writeOutput(`Discovered devices: ${discoveryResult.count}`);
-    writeOutput(`Successful device queries: ${discoveryResult.successful}`);
+    writeOutput(
+      `Successful device queries: ${discoveryResult.successful}`
+    );
     writeOutput(`Failed device queries: ${discoveryResult.failed}`);
 
     if (initialToken) {
@@ -192,5 +250,6 @@ if (require.main === module) {
 
 module.exports = {
   getTokenCount,
-  createInitialAdminTokenIfNeeded
+  createInitialAdminTokenIfNeeded,
+  promptForIntegrationUrl
 };
