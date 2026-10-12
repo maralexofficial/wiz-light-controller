@@ -8,6 +8,7 @@ const {
 
 const { runMigrations } = require('../src/database/migrations');
 const tokenService = require('../src/services/token.service');
+const logger = require('../src/utils/logger');
 
 const HELP = `
 WiZ Light Controller - Token Management
@@ -31,6 +32,10 @@ Available permissions:
 
   ${tokenService.AVAILABLE_PERMISSIONS.join('\n  ')}
 `;
+
+function writeCliOutput(message = '') {
+  process.stdout.write(`${message}\n`);
+}
 
 function parseArgs(args) {
   const options = {};
@@ -115,7 +120,10 @@ function ensureManagerSafeguard(db, tokenId, newPermissions, action) {
     throw new Error(`Token ${tokenId} has already been revoked.`);
   }
 
-  if (target.expires_at && Date.parse(target.expires_at) <= Date.now()) {
+  if (
+    target.expires_at &&
+    Date.parse(target.expires_at) <= Date.now()
+  ) {
     throw new Error(`Token ${tokenId} has already expired.`);
   }
 
@@ -146,8 +154,11 @@ function ensureManagerSafeguard(db, tokenId, newPermissions, action) {
     SELECT id, permissions
     FROM api_tokens
     WHERE revoked_at IS NULL
-      AND (expires_at IS NULL OR expires_at > ?)
-  `).all(new Date().toISOString());
+      AND (
+        expires_at IS NULL
+        OR julianday(expires_at) > julianday('now')
+      )
+  `).all();
 
   const otherActiveManagers = activeTokens.filter((row) => {
     if (Number(row.id) === tokenId) {
@@ -173,7 +184,7 @@ function ensureManagerSafeguard(db, tokenId, newPermissions, action) {
 
 function printTokenList(tokens) {
   if (tokens.length === 0) {
-    console.log('No tokens found.');
+    writeCliOutput('No tokens found.');
     return;
   }
 
@@ -187,18 +198,20 @@ function printTokenList(tokens) {
         ? 'Expired'
         : 'Active';
 
-    console.log('');
-    console.log(`ID:             ${token.id}`);
-    console.log(`Name:           ${token.name}`);
-    console.log(`Status:         ${status}`);
-    console.log(`Permissions:    ${token.permissions.join(', ') || '(none)'}`);
-    console.log(`Created:        ${token.createdAt}`);
-    console.log(`Updated:        ${token.updatedAt}`);
-    console.log(`Expires:        ${token.expiresAt || 'Never'}`);
-    console.log(`Revoked:        ${token.revokedAt || 'No'}`);
+    writeCliOutput();
+    writeCliOutput(`ID:             ${token.id}`);
+    writeCliOutput(`Name:           ${token.name}`);
+    writeCliOutput(`Status:         ${status}`);
+    writeCliOutput(
+      `Permissions:    ${token.permissions.join(', ') || '(none)'}`
+    );
+    writeCliOutput(`Created:        ${token.createdAt}`);
+    writeCliOutput(`Updated:        ${token.updatedAt}`);
+    writeCliOutput(`Expires:        ${token.expiresAt || 'Never'}`);
+    writeCliOutput(`Revoked:        ${token.revokedAt || 'No'}`);
   }
 
-  console.log('');
+  writeCliOutput();
 }
 
 function runCreate(options) {
@@ -230,18 +243,24 @@ function runCreate(options) {
     { expiresAt }
   );
 
-  console.log('');
-  console.log('Token created successfully.');
-  console.log(`ID:             ${created.id}`);
-  console.log(`Name:           ${created.name}`);
-  console.log(`Permissions:    ${created.permissions.join(', ')}`);
-  console.log(`Expires:        ${created.expiresAt || 'Never'}`);
-  console.log('');
-  console.log('IMPORTANT: The full token is displayed only once.');
-  console.log('Store it securely. Only its hash is stored in the database.');
-  console.log('');
-  console.log(created.token);
-  console.log('');
+  logger.info(
+    `[TOKENS] Token created | id=${created.id} | name=${created.name} | permissions=${created.permissions.join(',')} | expires=${created.expiresAt || 'never'}`
+  );
+
+  writeCliOutput();
+  writeCliOutput('Token created successfully.');
+  writeCliOutput(`ID:             ${created.id}`);
+  writeCliOutput(`Name:           ${created.name}`);
+  writeCliOutput(`Permissions:    ${created.permissions.join(', ')}`);
+  writeCliOutput(`Expires:        ${created.expiresAt || 'Never'}`);
+  writeCliOutput();
+  writeCliOutput('IMPORTANT: The full token is displayed only once.');
+  writeCliOutput('Store it securely. Only its hash is stored in the database.');
+  writeCliOutput();
+
+  // Intentionally output the secret only to the CLI, never to application logs.
+  writeCliOutput(created.token);
+  writeCliOutput();
 }
 
 function runPermissions(options) {
@@ -256,8 +275,12 @@ function runPermissions(options) {
   ensureManagerSafeguard(db, id, permissions, 'permissions');
   tokenService.updateTokenPermissions(id, permissions);
 
-  console.log(`Permissions updated for token ${id}.`);
-  console.log(permissions.join(', ') || '(none)');
+  logger.info(
+    `[TOKENS] Permissions updated | id=${id} | permissions=${permissions.join(',')}`
+  );
+
+  writeCliOutput(`Permissions updated for token ${id}.`);
+  writeCliOutput(permissions.join(', ') || '(none)');
 }
 
 function runRevoke(options) {
@@ -271,21 +294,22 @@ function runRevoke(options) {
   ensureManagerSafeguard(db, id, [], 'revoke');
   tokenService.revokeToken(id);
 
-  console.log(`Token ${id} has been revoked.`);
+  logger.info(`[TOKENS] Token revoked | id=${id}`);
+  writeCliOutput(`Token ${id} has been revoked.`);
 }
 
 function main() {
   const command = process.argv[2];
 
   if (!command || command === '--help' || command === '-h') {
-    console.log(HELP);
+    writeCliOutput(HELP);
     return;
   }
 
   const options = parseArgs(process.argv.slice(3));
 
   if (options.help) {
-    console.log(HELP);
+    writeCliOutput(HELP);
     return;
   }
 
@@ -318,6 +342,9 @@ function main() {
       case 'revoke':
         runRevoke(options);
         break;
+
+      default:
+        throw new Error(`Unknown command: ${command}`);
     }
   } finally {
     if (databaseInitialized) {
@@ -329,6 +356,7 @@ function main() {
 try {
   main();
 } catch (error) {
-  console.error(`Error: ${error.message}`);
+  logger.error(`[TOKENS] Command failed | ${error.message}`);
+  process.stderr.write(`Error: ${error.message}\n`);
   process.exitCode = 1;
 }
