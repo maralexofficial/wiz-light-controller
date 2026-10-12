@@ -2,6 +2,7 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const readline = require('node:readline/promises');
 
 const logger = require('../src/utils/logger');
 
@@ -14,7 +15,9 @@ function validateHomeData(data) {
   }
 
   if (!Array.isArray(data.rooms) || !Array.isArray(data.devices)) {
-    throw new Error('The JSON does not contain valid rooms and devices arrays.');
+    throw new Error(
+      'The JSON does not contain valid rooms and devices arrays.'
+    );
   }
 
   for (const room of data.rooms) {
@@ -83,7 +86,6 @@ async function downloadHomeData(url) {
 
   validateHomeData(data);
 
-  // Do not persist the signing key when it is not needed by this controller.
   const { udp_signing_key, ...safeData } = data;
 
   return safeData;
@@ -108,31 +110,77 @@ async function saveHomeData(data) {
   }
 }
 
-async function main() {
-  const integrationUrl = process.argv[2];
-
-  if (!integrationUrl) {
-    logger.error('[WiZ Sync] Missing integration URL.');
-    logger.info('[WiZ Sync] Usage: npm run wiz:sync -- <integration-url>');
-    process.exitCode = 1;
-    return;
+async function syncHomeData(integrationUrl) {
+  if (
+    typeof integrationUrl !== 'string' ||
+    integrationUrl.trim().length === 0
+  ) {
+    throw new Error('An integration URL is required.');
   }
 
-  try {
-    logger.info('[WiZ Sync] Downloading home structure...');
+  logger.info('[WiZ Sync] Downloading home structure...');
 
-    const data = await downloadHomeData(integrationUrl);
+  const data = await downloadHomeData(integrationUrl.trim());
 
-    await saveHomeData(data);
+  await saveHomeData(data);
 
-    logger.info(
-      `[WiZ Sync] Home structure saved | rooms=${data.rooms.length} | devices=${data.devices.length}`
+  logger.info(
+    `[WiZ Sync] Home structure saved | rooms=${data.rooms.length} | devices=${data.devices.length}`
+  );
+
+  return {
+    rooms: data.rooms.length,
+    devices: data.devices.length,
+    file: OUTPUT_FILE
+  };
+}
+
+async function promptForIntegrationUrl() {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Interactive input is unavailable. Run this command in a terminal.'
     );
-    logger.info(`[WiZ Sync] File: ${OUTPUT_FILE}`);
+  }
+
+  const terminal = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  try {
+    const url = await terminal.question(
+      'Paste the WiZ integration URL: '
+    );
+
+    if (!url.trim()) {
+      throw new Error('An integration URL is required.');
+    }
+
+    return url.trim();
+  } finally {
+    terminal.close();
+  }
+}
+
+async function main() {
+  try {
+    const integrationUrl = process.argv[2] ||
+      await promptForIntegrationUrl();
+
+    await syncHomeData(integrationUrl);
   } catch (error) {
     logger.error(`[WiZ Sync] ${error.message}`);
     process.exitCode = 1;
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  validateHomeData,
+  downloadHomeData,
+  saveHomeData,
+  syncHomeData
+};
