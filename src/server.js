@@ -16,6 +16,12 @@ const {
   runMigrations
 } = require('./database/migrations');
 
+const {
+  loadDiscoveryState
+} = require('./services/device-discovery-state.service');
+
+const systemRouter = require('./routes/system.routes');
+
 const HOME_DATA_FILE = path.join(
   __dirname,
   '..',
@@ -141,6 +147,17 @@ async function main() {
   runMigrations(db);
 
   logger.info('[SERVER] Database migrations completed.');
+
+  const discoveryState = loadDiscoveryState();
+
+  systemRouter.restoreDiscoveryState(
+    discoveryState.devices,
+    discoveryState.lastDiscoveryTime
+  );
+
+  logger.info(
+    `[SERVER] Discovery state restored | devices=${discoveryState.devices.length} | lastDiscoveryTime=${discoveryState.lastDiscoveryTime ?? 'never'}`
+  );
 
   startServer();
 }
