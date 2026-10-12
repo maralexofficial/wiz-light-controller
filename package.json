@@ -19,6 +19,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "setup": "node scripts/setup.js",
     "test:migration-5": "node tests/migration-5.js",
     "wiz:sync": "node scripts/wiz-sync.js",
     "token:create": "node scripts/token.js create",
