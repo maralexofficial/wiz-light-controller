@@ -1,9 +1,6 @@
 'use strict';
 
 const express = require('express');
-const fs = require('node:fs/promises');
-const path = require('node:path');
-
 const deviceDiscovery = require('../services/device-discovery.service');
 const {
   saveDiscoveryState
@@ -11,16 +8,13 @@ const {
 const wiz = require('../services/wiz.service');
 const response = require('../utils/response');
 const logger = require('../utils/logger');
+const { normalizeMac } = require('../utils/mac');
+const {
+  loadHomeDataFromFile,
+  validateHomeData
+} = require('../utils/home-data');
 
 const router = express.Router();
-
-const HOME_DATA_FILE = path.join(
-  __dirname,
-  '..',
-  '..',
-  'data',
-  'wiz-home.json'
-);
 
 let discoveredBulbs = [];
 let discoveryInProgress = false;
@@ -70,44 +64,9 @@ function requirePermission(permission) {
   };
 }
 
-function validateHomeData(data) {
-  if (
-    !data ||
-    typeof data !== 'object' ||
-    Array.isArray(data) ||
-    !Array.isArray(data.rooms) ||
-    !Array.isArray(data.devices)
-  ) {
-    throw new Error('Invalid home data structure.');
-  }
-
-  for (const room of data.rooms) {
-    if (
-      !room ||
-      typeof room.room_id !== 'number' ||
-      typeof room.name !== 'string'
-    ) {
-      throw new Error('Invalid room entry.');
-    }
-  }
-
-  for (const device of data.devices) {
-    if (
-      !device ||
-      typeof device.mac_address !== 'string' ||
-      typeof device.name !== 'string' ||
-      typeof device.room_id !== 'number'
-    ) {
-      throw new Error('Invalid device entry.');
-    }
-  }
-}
-
 async function loadHomeData() {
   try {
-    const content = await fs.readFile(HOME_DATA_FILE, 'utf8');
-    const data = JSON.parse(content);
-
+    const data = await loadHomeDataFromFile();
     validateHomeData(data);
     homeData = data;
 
@@ -133,14 +92,6 @@ function ensureHomeDataLoaded() {
   }
 
   return homeDataLoadPromise;
-}
-
-function normalizeMac(mac) {
-  if (typeof mac !== 'string') {
-    return '';
-  }
-
-  return mac.replace(/[^a-f0-9]/gi, '').toLowerCase();
 }
 
 function getDeviceMetadata(mac) {
