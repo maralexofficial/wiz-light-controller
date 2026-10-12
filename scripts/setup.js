@@ -1,7 +1,5 @@
 'use strict';
 
-const readline = require('node:readline/promises');
-
 const logger = require('../src/utils/logger');
 const {
   initializeDatabase,
@@ -26,7 +24,9 @@ function writeOutput(message = '') {
 }
 
 async function promptForIntegrationUrl() {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  const stdin = process.stdin;
+
+  if (!stdin.isTTY || !process.stdout.isTTY) {
     throw new Error(
       'Interactive terminal input is required to run setup.'
     );
@@ -34,18 +34,24 @@ async function promptForIntegrationUrl() {
 
   writeOutput('WiZ integration setup');
   writeOutput('Paste the integration URL from the WiZ app.');
-  writeOutput('Input is hidden.');
+  writeOutput('Input is hidden. Press Ctrl+C to cancel.');
 
   return new Promise((resolve, reject) => {
-    const stdin = process.stdin;
     let input = '';
     let finished = false;
+    let previousEncoding = null;
 
     function cleanup() {
       stdin.removeListener('data', onData);
 
-      if (stdin.isTTY) {
+      try {
         stdin.setRawMode(false);
+      } catch {
+        // The terminal may already be in normal mode.
+      }
+
+      if (previousEncoding !== null) {
+        stdin.setEncoding(previousEncoding);
       }
 
       stdin.pause();
@@ -68,17 +74,14 @@ async function promptForIntegrationUrl() {
     }
 
     function onData(chunk) {
-      for (const character of chunk.toString('utf8')) {
+      for (const character of chunk.toString()) {
         if (character === '\u0003') {
           finish(new Error('Setup cancelled by user.'));
           return;
         }
 
         if (character === '\r' || character === '\n') {
-          finish(
-            null,
-            input.trim()
-          );
+          finish(null, input.trim());
           return;
         }
 
@@ -94,10 +97,12 @@ async function promptForIntegrationUrl() {
     }
 
     try {
+      previousEncoding = stdin.readableEncoding;
+      stdin.setEncoding('utf8');
       stdin.setRawMode(true);
       stdin.resume();
-      stdin.setEncoding('utf8');
       stdin.on('data', onData);
+
       process.stdout.write('Integration URL: ');
     } catch (error) {
       finish(
@@ -146,6 +151,18 @@ function createInitialAdminTokenIfNeeded() {
   return created;
 }
 
+function displayInitialToken(token) {
+  if (!token) {
+    return;
+  }
+
+  writeOutput('');
+  writeOutput('IMPORTANT: Save this administrator token securely.');
+  writeOutput('It will not be displayed again.');
+  writeOutput(`Administrator token: ${token.token}`);
+  writeOutput('');
+}
+
 async function performInitialDiscovery() {
   logger.info('[SETUP] Starting initial device discovery...');
 
@@ -175,11 +192,11 @@ async function performInitialDiscovery() {
 
 async function main() {
   let databaseInitialized = false;
-  let initialToken = null;
 
   try {
     const integrationUrl = await promptForIntegrationUrl();
 
+    // Download and validate before changing the token database.
     await syncHomeData(integrationUrl);
 
     initializeDatabase();
@@ -190,7 +207,11 @@ async function main() {
 
     logger.info('[SETUP] Database migrations completed.');
 
-    initialToken = createInitialAdminTokenIfNeeded();
+    const initialToken = createInitialAdminTokenIfNeeded();
+
+    // Display a newly created secret immediately. A later network
+    // failure must not leave the user without access to that secret.
+    displayInitialToken(initialToken);
 
     const discoveryResult = await performInitialDiscovery();
 
@@ -202,13 +223,7 @@ async function main() {
     );
     writeOutput(`Failed device queries: ${discoveryResult.failed}`);
 
-    if (initialToken) {
-      writeOutput('');
-      writeOutput('IMPORTANT: Save this administrator token securely.');
-      writeOutput('It will not be displayed again.');
-      writeOutput(`Administrator token: ${initialToken.token}`);
-      writeOutput('');
-    } else {
+    if (!initialToken) {
       writeOutput(
         'Existing tokens were preserved. No new token was created.'
       );
