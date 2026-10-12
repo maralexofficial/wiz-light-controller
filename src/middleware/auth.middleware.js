@@ -1,6 +1,5 @@
 'use strict';
 
-const crypto = require('node:crypto');
 const tokenService = require('../services/token.service');
 const response = require('../utils/response');
 const logger = require('../utils/logger');
