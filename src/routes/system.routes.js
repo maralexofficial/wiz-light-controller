@@ -30,14 +30,18 @@ let homeDataLoadPromise = null;
 
 function restoreDiscoveryState(devices, timestamp) {
   if (!Array.isArray(devices)) {
-    throw new TypeError('Restored discovery devices must be an array.');
+    throw new TypeError(
+      'Restored discovery devices must be an array.'
+    );
   }
 
   if (
     timestamp !== null &&
     (!Number.isSafeInteger(timestamp) || timestamp <= 0)
   ) {
-    throw new TypeError('Restored discovery timestamp is invalid.');
+    throw new TypeError(
+      'Restored discovery timestamp is invalid.'
+    );
   }
 
   discoveredBulbs = devices.map((device) => ({ ...device }));
@@ -354,14 +358,18 @@ router.get(
       const enrichedDevices = devices.map(enrichDeviceInfo);
       const discoveryTime = Date.now();
 
-      // Persist the complete discovery result before updating the cache.
-      saveDiscoveryState(enrichedDevices, discoveryTime);
+      const savedState = saveDiscoveryState(
+        enrichedDevices,
+        discoveryTime
+      );
 
-      discoveredBulbs = enrichedDevices;
-      lastDiscoveryTime = discoveryTime;
+      discoveredBulbs = savedState.devices.map(
+        (device) => ({ ...device })
+      );
+      lastDiscoveryTime = savedState.lastDiscoveryTime;
 
       logger.info(
-        `[API] Discovery completed and saved | devices=${discoveredBulbs.length} | timestamp=${lastDiscoveryTime}`
+        `[API] Discovery completed and saved | discovered=${devices.length} | stored=${discoveredBulbs.length} | timestamp=${lastDiscoveryTime}`
       );
 
       return response.success(res, {
