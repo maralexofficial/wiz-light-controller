@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { normalizeMac } = require('../utils/mac');
 
 const HOME_DATA_FILE = path.resolve(
   __dirname,
@@ -18,21 +19,6 @@ class HomeDataError extends Error {
     this.code = code;
     this.statusCode = statusCode;
   }
-}
-
-function normalizeMac(mac) {
-  if (typeof mac !== 'string') {
-    return null;
-  }
-
-  const normalized = mac
-    .trim()
-    .replace(/[:-]/g, '')
-    .toLowerCase();
-
-  return /^[0-9a-f]{12}$/.test(normalized)
-    ? normalized
-    : null;
 }
 
 function loadHomeData() {

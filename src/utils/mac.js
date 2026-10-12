@@ -2,10 +2,17 @@
 
 function normalizeMac(mac) {
   if (typeof mac !== 'string') {
-    return '';
+    return null;
   }
 
-  return mac.replace(/[^a-f0-9]/gi, '').toLowerCase();
+  const normalized = mac
+    .trim()
+    .replace(/[:-]/g, '')
+    .toLowerCase();
+
+  return /^[0-9a-f]{12}$/.test(normalized)
+    ? normalized
+    : null;
 }
 
 module.exports = {
