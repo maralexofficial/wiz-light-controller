@@ -12,6 +12,9 @@ const { syncHomeData } = require('./wiz-sync');
 
 const deviceDiscovery = require('../src/services/device-discovery.service');
 const wizService = require('../src/services/wiz.service');
+const {
+  saveDiscoveryState
+} = require('../src/services/device-discovery-state.service');
 
 const INITIAL_ADMIN_NAME = 'Initial Administrator';
 
@@ -170,11 +173,19 @@ async function performInitialDiscovery() {
     const devices =
       await deviceDiscovery.discoverDevicesWithDetails();
 
+    const lastDiscoveryTime = Date.now();
+
+    saveDiscoveryState(devices, lastDiscoveryTime);
+
     const successful = devices.filter(
       (device) => device.success === true
     ).length;
 
     const failed = devices.length - successful;
+
+    logger.info(
+      `[SETUP] Discovery snapshot saved | devices=${devices.length} | timestamp=${lastDiscoveryTime}`
+    );
 
     logger.info(
       `[SETUP] Initial discovery completed | discovered=${devices.length} | successful=${successful} | failed=${failed}`
