@@ -4,7 +4,7 @@ const express = require('express');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const discovery = require('../services/discovery.service');
+const deviceDiscovery = require('../services/device-discovery.service');
 const wiz = require('../services/wiz.service');
 const response = require('../utils/response');
 const logger = require('../utils/logger');
@@ -190,9 +190,9 @@ function findDiscoveredBulbByMac(mac) {
   return bulb ? { ...bulb } : null;
 }
 
-function enrichDeviceInfo(bulb, info) {
-  const systemConfig = info?.systemConfig || {};
-  const deviceState = info?.state;
+function enrichDeviceInfo(bulb) {
+  const systemConfig = bulb?.systemConfig || {};
+  const deviceState = bulb?.state;
 
   const state = deviceState && typeof deviceState === 'object'
     ? { ...deviceState }
@@ -208,7 +208,7 @@ function enrichDeviceInfo(bulb, info) {
   return {
     ip: bulb.ip,
     mac: bulb.mac,
-    success: bulb.success,
+    success: bulb.success === true,
     roomId: systemConfig.roomId ?? null,
     roomName: metadata.roomName,
     deviceName: metadata.deviceName,
@@ -329,39 +329,10 @@ router.get(
     try {
       await ensureHomeDataLoaded();
 
-      const devices = await discovery.discoverDevices();
+      const devices =
+        await deviceDiscovery.discoverDevicesWithDetails();
 
-      const enrichedDevices = await Promise.all(
-        devices.map(async (bulb) => {
-          try {
-            const info = await wiz.getDeviceInfo(bulb.ip);
-            return enrichDeviceInfo(bulb, info);
-          } catch (error) {
-            logger.warn(
-              `[API] Device information request failed for ${bulb.ip}:`,
-              error?.message || 'Unknown error'
-            );
-
-            const metadata = getDeviceMetadata(bulb.mac);
-
-            return {
-              ip: bulb.ip,
-              mac: bulb.mac,
-              success: bulb.success,
-              roomId: null,
-              roomName: metadata.roomName,
-              deviceName: metadata.deviceName,
-              deviceType: metadata.deviceType,
-              moduleName: null,
-              firmwareVersion: null,
-              state: null,
-              rssi: null
-            };
-          }
-        })
-      );
-
-      discoveredBulbs = enrichedDevices;
+      discoveredBulbs = devices.map(enrichDeviceInfo);
       lastDiscoveryTime = Date.now();
 
       logger.info(
