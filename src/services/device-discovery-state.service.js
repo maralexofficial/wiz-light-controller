@@ -1,14 +1,7 @@
 'use strict';
 
 const { getDatabase } = require('../database');
-
-function normalizeMac(mac) {
-  if (typeof mac !== 'string') {
-    return '';
-  }
-
-  return mac.replace(/[^a-f0-9]/gi, '').toLowerCase();
-}
+const { normalizeMac } = require('../utils/mac');
 
 function mergeDevices(previousDevices, discoveredDevices) {
   const devicesByMac = new Map();

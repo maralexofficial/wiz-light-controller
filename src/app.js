@@ -4,6 +4,8 @@ const express = require('express');
 const authMiddleware = require('./middleware/auth.middleware');
 const response = require('./utils/response');
 const logger = require('./utils/logger');
+const { normalizeMac } = require('./utils/mac');
+const { tryLoadHomeData } = require('./utils/home-data');
 
 const bulbsRouter = require('./routes/bulbs.routes');
 const systemRouter = require('./routes/system.routes');

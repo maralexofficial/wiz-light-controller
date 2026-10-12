@@ -4,8 +4,7 @@ const app = require('./app');
 const config = require('./config');
 const wizService = require('./services/wiz.service');
 const logger = require('./utils/logger');
-const fs = require('node:fs/promises');
-const path = require('node:path');
+const { tryLoadHomeData } = require('./utils/home-data');
 
 const {
   initializeDatabase,
@@ -22,45 +21,22 @@ const {
 
 const systemRouter = require('./routes/system.routes');
 
-const HOME_DATA_FILE = path.join(
-  __dirname,
-  '..',
-  'data',
-  'wiz-home.json'
-);
-
 let server;
 let shuttingDown = false;
 
 async function checkHomeData() {
-  try {
-    const content = await fs.readFile(HOME_DATA_FILE, 'utf8');
-    const data = JSON.parse(content);
+  const result = await tryLoadHomeData();
 
-    if (
-      !data ||
-      typeof data !== 'object' ||
-      Array.isArray(data) ||
-      !Array.isArray(data.rooms) ||
-      !Array.isArray(data.devices)
-    ) {
-      throw new Error('Invalid home data structure.');
-    }
-
+  if (result.success) {
     logger.info(
-      `[SERVER] WiZ home data loaded | rooms=${data.rooms.length} | devices=${data.devices.length}`
+      `[SERVER] WiZ home data loaded | rooms=${result.roomCount} | devices=${result.deviceCount}`
     );
-  } catch (error) {
-    const reason = error.code === 'ENOENT'
-      ? 'File does not exist.'
-      : error instanceof SyntaxError
-        ? 'Invalid JSON.'
-        : error.message || 'Unknown error.';
-
-    logger.warn(
-      `[SERVER] Optional WiZ home data unavailable: ${reason}`
-    );
+    return;
   }
+
+  logger.warn(
+    `[SERVER] Optional WiZ home data unavailable: ${result.error}`
+  );
 }
 
 function startServer() {
