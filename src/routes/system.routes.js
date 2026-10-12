@@ -5,6 +5,9 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const deviceDiscovery = require('../services/device-discovery.service');
+const {
+  saveDiscoveryState
+} = require('../services/device-discovery-state.service');
 const wiz = require('../services/wiz.service');
 const response = require('../utils/response');
 const logger = require('../utils/logger');
@@ -24,6 +27,22 @@ let discoveryInProgress = false;
 let lastDiscoveryTime = null;
 let homeData = null;
 let homeDataLoadPromise = null;
+
+function restoreDiscoveryState(devices, timestamp) {
+  if (!Array.isArray(devices)) {
+    throw new TypeError('Restored discovery devices must be an array.');
+  }
+
+  if (
+    timestamp !== null &&
+    (!Number.isSafeInteger(timestamp) || timestamp <= 0)
+  ) {
+    throw new TypeError('Restored discovery timestamp is invalid.');
+  }
+
+  discoveredBulbs = devices.map((device) => ({ ...device }));
+  lastDiscoveryTime = timestamp;
+}
 
 function requirePermission(permission) {
   return (req, res, next) => {
@@ -332,11 +351,17 @@ router.get(
       const devices =
         await deviceDiscovery.discoverDevicesWithDetails();
 
-      discoveredBulbs = devices.map(enrichDeviceInfo);
-      lastDiscoveryTime = Date.now();
+      const enrichedDevices = devices.map(enrichDeviceInfo);
+      const discoveryTime = Date.now();
+
+      // Persist the complete discovery result before updating the cache.
+      saveDiscoveryState(enrichedDevices, discoveryTime);
+
+      discoveredBulbs = enrichedDevices;
+      lastDiscoveryTime = discoveryTime;
 
       logger.info(
-        `[API] Discovery completed | devices=${discoveredBulbs.length}`
+        `[API] Discovery completed and saved | devices=${discoveredBulbs.length} | timestamp=${lastDiscoveryTime}`
       );
 
       return response.success(res, {
@@ -467,3 +492,4 @@ router.get(
 module.exports = router;
 module.exports.getDiscoveredBulbs = getDiscoveredBulbs;
 module.exports.findDiscoveredBulbByMac = findDiscoveredBulbByMac;
+module.exports.restoreDiscoveryState = restoreDiscoveryState;
