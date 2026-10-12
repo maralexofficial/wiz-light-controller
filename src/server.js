@@ -1,4 +1,3 @@
-
 'use strict';
 
 const app = require('./app');
@@ -16,10 +15,6 @@ const {
 const {
   runMigrations
 } = require('./database/migrations');
-
-const {
-  bootstrapLegacyToken
-} = require('./services/token-bootstrap.service');
 
 const HOME_DATA_FILE = path.join(
   __dirname,
@@ -39,6 +34,7 @@ async function checkHomeData() {
     if (
       !data ||
       typeof data !== 'object' ||
+      Array.isArray(data) ||
       !Array.isArray(data.rooms) ||
       !Array.isArray(data.devices)
     ) {
@@ -94,8 +90,17 @@ async function shutdown(signal) {
   forceExitTimer.unref();
 
   if (!server) {
-    await closeResources();
-    process.exit(0);
+    try {
+      await closeResources();
+      process.exit(0);
+    } catch (error) {
+      logger.error(
+        '[SERVER] Resource shutdown error:',
+        error.message
+      );
+      process.exit(1);
+    }
+
     return;
   }
 
@@ -136,12 +141,6 @@ async function main() {
   runMigrations(db);
 
   logger.info('[SERVER] Database migrations completed.');
-
-  const importedToken = bootstrapLegacyToken();
-
-  logger.info(
-    `[SERVER] Token bootstrap completed | tokenId=${importedToken.id} | created=${importedToken.created}`
-  );
 
   startServer();
 }
